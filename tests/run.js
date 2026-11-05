@@ -5,6 +5,9 @@ load('js/theory.js');
 load('js/suggest.js');
 load('js/voicings.js');
 load('js/melody.js');
+globalThis.performance = globalThis.performance || { now: () => clock };
+var clock = 1000;
+load('js/midi.js');
 
 const { makeKey, harmonicField, outsideChords, chordText, noteName, makeChord, note } = Theory;
 let failed = 0;
@@ -146,6 +149,42 @@ eq(missing, 0, 'cobertura de voicings');
       });
     }
   }
+}
+
+// MIDI: con una salida falsa y un reloj controlado
+{
+  globalThis.performance = { now: () => clock };
+  let sent = [];
+  Midi.attach({ send: (b, t) => sent.push([...b, t]) });
+  const kinds = () => sent.map((m) => m[0]);
+
+  Midi.chord(1, [60, 64, 67], 1000, 80, 1000);
+  eq(kinds(), [0x90, 0x90, 0x90], 'acorde: tres note-on, canal 1');
+  eq(sent[1], [0x90, 64, 80, 1000], 'note-on con marca de tiempo');
+  Midi.flush();
+  eq(sent.length, 3, 'el note-off se retiene hasta su momento');
+  clock = 1900; Midi.flush();
+  eq(sent.slice(3).map((m) => m.slice(0, 2).concat(m[3])), [[0x80, 60, 2000], [0x80, 64, 2000], [0x80, 67, 2000]], 'note-off a tiempo');
+
+  sent = []; clock = 3000;
+  Midi.note(2, 72, 500, 100, 3000);
+  eq(sent[0], [0x91, 72, 100, 3000], 'melodía en canal 2');
+  Midi.note(2, 72, 500, 100, 3200);
+  eq(sent.slice(1), [[0x81, 72, 0, 3199], [0x91, 72, 100, 3200]], 'nota repetida cierra la anterior antes de atacar');
+
+  sent = []; clock = 4000;
+  Midi.note(1, 60, 500, 90, 4000);
+  Midi.note(3, 62, 500, 90, 4050);
+  sent = [];
+  Midi.silence();
+  eq(sent.filter((m) => m[0] === 0x80 && m[1] === 60).length, 2, 'parar apaga ahora y tras el margen');
+  eq(sent.some((m) => m[0] === 0x82 && m[1] === 62), true, 'parar cubre todos los canales usados');
+  eq(sent.some((m) => m[0] === 0xB0 && m[1] === 123), true, 'parar envía all notes off');
+  sent = []; clock = 9000; Midi.flush();
+  eq(sent, [], 'tras parar no quedan note-off pendientes');
+  Midi.panic();
+  eq(sent.length, 32, 'pánico en los 16 canales');
+  Midi.attach(null);
 }
 
 print(`${passed} correctas, ${failed} fallidas`);

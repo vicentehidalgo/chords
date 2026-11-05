@@ -6,7 +6,7 @@
   const V = globalThis.Voicings;
   const D = globalThis.Diagrams;
   const M = globalThis.Melody;
-  const { Sound } = globalThis;
+  const { Sound, Midi } = globalThis;
   const { mod } = T;
   const $ = (id) => document.getElementById(id);
 
@@ -14,6 +14,7 @@
   const DEFAULTS = {
     tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin',
     outside: true, smooth: true, bpm: 88, loop: true, playChords: true, playMelody: true,
+    midiOn: false, midiOut: null, midiSend: 'both', midiChordCh: 1, midiMelodyCh: 2, localSound: true,
     prog: [],
   };
   const state = { ...DEFAULTS };
@@ -24,7 +25,7 @@
   // Estado que no se guarda.
   const ui = {
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
-    more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null,
+    more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
   };
 
   let key;
@@ -414,8 +415,8 @@
         <div class="row">
           <button class="primary" data-act="mel-generate">Proponer melodía</button>
           <button data-act="mel-clear">Borrar melodía</button>
-          <button data-act="toggle-chords" aria-pressed="${state.playChords}">Oír acordes</button>
-          <button data-act="toggle-melody" aria-pressed="${state.playMelody}">Oír melodía</button>
+          <button data-act="toggle-chords" aria-pressed="${state.playChords}" ${browserMuted() ? 'disabled' : ''}>Oír acordes</button>
+          <button data-act="toggle-melody" aria-pressed="${state.playMelody}" ${browserMuted() ? 'disabled' : ''}>Oír melodía</button>
         </div>
       </div>
       <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar.</p>
@@ -456,7 +457,7 @@
     } else {
       mel[s] = off;
       ui.cursor = { i, s };
-      Sound.note(M.midiOf(off, key));
+      emitNote(M.midiOf(off, key));
     }
     save();
     renderMelody();
@@ -485,11 +486,101 @@
         : `<p class="muted">No hay progresiones guardadas para esta escala. Construye la tuya con las sugerencias.</p>`}`;
   }
 
+  // Salida de sonido: navegador, instrumento MIDI o ambos -----------------------
+
+  const browserMuted = () => Boolean(Midi.output) && !state.localSound;
+  const sendsChords = () => state.midiSend !== 'melody';
+  const sendsMelody = () => state.midiSend !== 'chords';
+
+  function emitChord(midis, dur = 1.6, gain = .2, at = performance.now(), hear = true) {
+    const inst = state.instrument === 'piano' ? 'piano' : 'guitar';
+    if (hear && !browserMuted()) Sound.chord(midis, inst, dur, gain, (at - performance.now()) / 1000);
+    if (sendsChords()) Midi.chord(state.midiChordCh, midis, dur * 1000, 80, at, inst === 'guitar' ? 22 : 0);
+  }
+
+  function emitNote(midi, dur = .4, gain = .32, at = performance.now(), hear = true) {
+    if (hear && !browserMuted()) Sound.note(midi, dur, gain, (at - performance.now()) / 1000);
+    if (sendsMelody()) Midi.note(state.midiMelodyCh, midi, dur * 1000, 100, at);
+  }
+
+  function channelSelect(id, label, value) {
+    const opts = [...Array(16).keys()].map((c) =>
+      `<option value="${c + 1}" ${c + 1 === value ? 'selected' : ''}>${c + 1}</option>`).join('');
+    return `<label class="field"><span>${label}</span><select id="${id}">${opts}</select></label>`;
+  }
+
+  function renderMidi() {
+    const el = $('midi');
+    if (!Midi.supported()) {
+      el.innerHTML = `<h2>MIDI</h2><p class="muted">Este navegador no permite MIDI. Abre la web en Chrome o Edge.</p>`;
+      return;
+    }
+    if (!Midi.connected) {
+      el.innerHTML = `<h2>MIDI</h2>
+        <button data-act="midi-connect">Conectar instrumento</button>
+        <p class="muted">Enchúfalo por USB antes de conectar. El navegador te pedirá permiso.</p>
+        ${ui.midiError ? `<p class="midi-error">${ui.midiError}</p>` : ''}`;
+      return;
+    }
+    const outs = Midi.list();
+    const current = Midi.output;
+    if (!outs.length) {
+      el.innerHTML = `<h2>MIDI</h2><p class="muted">No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.</p>`;
+      return;
+    }
+    el.innerHTML = `<h2>MIDI</h2>
+      <label class="field wide"><span>Instrumento</span><select id="m-out">${outs.map((o) =>
+        `<option value="${escapeAttr(o.id)}" ${current && o.id === current.id ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select></label>
+      <div class="field"><span>Enviar</span>${seg('midi-send', [['chords', 'Progresión'], ['melody', 'Melodía'], ['both', 'Las dos']], state.midiSend)}</div>
+      ${sendsChords() ? channelSelect('m-chord-ch', 'Canal progresión', state.midiChordCh) : ''}
+      ${sendsMelody() ? channelSelect('m-melody-ch', 'Canal melodía', state.midiMelodyCh) : ''}
+      <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> Sonar también en el navegador</label>
+      <button data-act="midi-panic">Silenciar instrumento</button>`;
+    $('m-out').onchange = (e) => { Midi.select(e.target.value); state.midiOut = e.target.value; save(); };
+    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMelody(); };
+    const ch = (id, prop) => {
+      if ($(id)) $(id).onchange = (e) => { Midi.silence(); state[prop] = Number(e.target.value); save(); };
+    };
+    ch('m-chord-ch', 'midiChordCh');
+    ch('m-melody-ch', 'midiMelodyCh');
+  }
+
+  const escapeText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const escapeAttr = (s) => escapeText(s).replace(/"/g, '&quot;');
+
+  async function connectMidi() {
+    try {
+      await Midi.connect(state.midiOut);
+      state.midiOn = true;
+      ui.midiError = null;
+    } catch (e) {
+      state.midiOn = false;
+      ui.midiError = e.name === 'NotAllowedError' || e.name === 'SecurityError'
+        ? 'El navegador ha denegado el acceso. Permite MIDI en el icono junto a la dirección y vuelve a intentarlo.'
+        : 'No se pudo acceder a MIDI: ' + e.message;
+    }
+    save();
+    renderMidi();
+    renderMelody();
+  }
+
+  // Al enchufar o desenchufar: recupera el instrumento elegido o el primero que haya.
+  Midi.onChange = () => {
+    if (!Midi.output) {
+      const outs = Midi.list();
+      const found = outs.find((o) => o.id === state.midiOut) || outs[0];
+      if (found) Midi.select(found.id);
+    }
+    renderMidi();
+    renderMelody();
+  };
+
   // Coordinación ---------------------------------------------------------------
 
   function render() {
     renderControls();
     renderStrip();
+    renderMidi();
     renderNext();
     renderDetail();
     renderMelody();
@@ -509,9 +600,8 @@
   function playFocus() {
     const f = focusChord();
     if (!f) return;
-    const piano = state.instrument === 'piano';
-    const v = piano ? f.p : f.g;
-    if (v) Sound.chord(v.midis, piano ? 'piano' : 'guitar');
+    const v = state.instrument === 'piano' ? f.p : f.g;
+    if (v) emitChord(v.midis);
   }
 
   function shiftVoicing(kind, d) {
@@ -591,6 +681,9 @@
     'voice-g'(el) { shiftVoicing('g', Number(el.dataset.d)); },
     'voice-p'(el) { shiftVoicing('p', Number(el.dataset.d)); },
     play() { if (ui.playing) stop(); else play(); },
+    'midi-connect'() { connectMidi(); },
+    'midi-send'(el) { Midi.silence(); state.midiSend = el.dataset.v; save(); renderMidi(); },
+    'midi-panic'() { Midi.panic(); },
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMelody(); },
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMelody(); },
@@ -640,56 +733,78 @@
     if (el) el.classList.add('is-playing');
   }
 
-  function play() {
-    if (!chords.length) return;
-    const list = M.rows(key, chords);
-    const piano = state.instrument === 'piano';
-    const tick = () => {
-      const p = ui.playing;
-      if (!p) return;
-      if (!chords.length) { stop(); return; }
+  // Los pasos se programan con un poco de antelación: así el MIDI lleva marcas de
+  // tiempo exactas y no depende de lo ocupada que esté la página.
+  const LOOKAHEAD_MS = 120;
+
+  function scheduleStep(p, at) {
+    const stepDur = 30 / state.bpm;
+    const { i, s } = p;
+    if (s === 0) {
+      const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
+      if (v) emitChord(v.midis, stepDur * M.STEPS * .95, .15, at, state.playChords);
+    }
+    const n = melodyAt(p.list, i, s);
+    if (n) emitNote(M.midiOf(n.off, key), n.len * stepDur * .92, .32, at, state.playMelody);
+    setTimeout(() => {
+      if (ui.playing !== p) return;
+      if (s === 0) highlight(i);
+      movePlayhead(i, s);
+    }, Math.max(0, at - performance.now()));
+  }
+
+  function schedule() {
+    const p = ui.playing;
+    if (!p) return;
+    if (!chords.length) { stop(); return; }
+    const now = performance.now();
+    if (p.endAt) {
+      if (now >= p.endAt) stop();
+      return;
+    }
+    while (p.next < now + LOOKAHEAD_MS) {
       if (p.i >= chords.length) p.i = 0; // se quitó un acorde mientras sonaba
-      const stepDur = 30 / state.bpm;
-      if (p.s === 0) {
-        highlight(p.i);
-        if (state.playChords) {
-          const v = voicings[p.i][piano ? 'p' : 'g'];
-          if (v) Sound.chord(v.midis, piano ? 'piano' : 'guitar', stepDur * M.STEPS * .95, .15);
-        }
-      }
-      movePlayhead(p.i, p.s);
-      if (state.playMelody) {
-        const n = melodyAt(list, p.i, p.s);
-        if (n) Sound.note(M.midiOf(n.off, key), n.len * stepDur * .92);
-      }
+      scheduleStep(p, p.next);
+      p.next += 30000 / state.bpm;
       p.s += 1;
       if (p.s >= M.STEPS) {
         p.s = 0;
         p.i += 1;
         if (p.i >= chords.length) {
-          if (!state.loop) {
-            p.timer = setTimeout(stop, stepDur * 1000);
-            ui.playing = { ...p, ended: true };
-            return;
-          }
+          if (!state.loop) { p.endAt = p.next; return; }
           p.i = 0;
         }
       }
-      p.timer = setTimeout(tick, stepDur * 1000);
-    };
-    ui.playing = { i: 0, s: 0, timer: null };
+    }
+  }
+
+  function play() {
+    if (!chords.length) return;
+    ui.playing = { i: 0, s: 0, next: performance.now() + 40, list: M.rows(key, chords), endAt: 0 };
     renderStrip();
-    tick();
   }
 
   function stop() {
     if (!ui.playing) return;
-    clearTimeout(ui.playing.timer);
     ui.playing = null;
+    Midi.silence();
     const head = document.querySelector('.playhead');
     if (head) head.hidden = true;
     highlight(-1);
     renderStrip();
+  }
+
+  // Un temporizador en un worker sigue a su ritmo con la ventana en segundo plano,
+  // que es lo normal si estás mirando el instrumento o tu programa de música.
+  function startTicker(fn) {
+    try {
+      const code = 'setInterval(() => postMessage(0), 25);';
+      const worker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+      worker.onmessage = fn;
+      worker.onerror = () => { worker.terminate(); setInterval(fn, 25); };
+    } catch (e) {
+      setInterval(fn, 25);
+    }
   }
 
   // Eventos --------------------------------------------------------------------
@@ -702,7 +817,7 @@
       return;
     }
     const label = e.target.closest('[data-note]');
-    if (label) { Sound.note(M.midiOf(Number(label.dataset.note), key)); return; }
+    if (label) { emitNote(M.midiOf(Number(label.dataset.note), key)); return; }
     const el = e.target.closest('[data-act]');
     if (el && !el.disabled) ACTIONS[el.dataset.act](el);
   });
@@ -713,6 +828,8 @@
     if (e.key === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); ACTIONS.play(); }
   });
 
+  startTicker(() => { schedule(); Midi.flush(); });
   recompute();
   render();
+  if (state.midiOn && Midi.supported()) connectMidi();
 })();

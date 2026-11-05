@@ -50,15 +50,17 @@
     });
   }
 
-  function chord(midis, instrument, dur = 1.6, gain = .2) {
+  // delay: segundos hasta que debe sonar (permite programar con antelación).
+  function chord(midis, instrument, dur = 1.6, gain = .2, delay = 0) {
     if (!ensure()) return;
     const strum = instrument === 'guitar' ? .022 : .004;
-    midis.forEach((m, i) => tone(m, ctx.currentTime + .01 + i * strum, dur, gain, instrument));
+    const at = ctx.currentTime + .01 + Math.max(0, delay);
+    midis.forEach((m, i) => tone(m, at + i * strum, dur, gain, instrument));
   }
 
-  function note(midi, dur = .4, gain = .32) {
+  function note(midi, dur = .4, gain = .32, delay = 0) {
     if (!ensure()) return;
-    tone(midi, ctx.currentTime + .01, dur, gain, 'lead');
+    tone(midi, ctx.currentTime + .01 + Math.max(0, delay), dur, gain, 'lead');
   }
 
   globalThis.Sound = { chord, note };
