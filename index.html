@@ -22,9 +22,18 @@
 
   <nav class="tabbar">
     <div role="tablist" aria-label="Secciones" class="tabs">
-      <button role="tab" id="tab-btn-chords" data-act="tab" data-v="chords" aria-controls="tab-chords" aria-keyshortcuts="Tab">Progresión</button>
-      <button role="tab" id="tab-btn-melody" data-act="tab" data-v="melody" aria-controls="tab-melody" aria-keyshortcuts="Tab">Melodía</button>
-      <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab">Percusión</button>
+      <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-chords" data-act="tab" data-v="chords" aria-controls="tab-chords" aria-keyshortcuts="Tab">Progresión</button>
+        <button class="tab-mute" id="mute-chords" data-act="toggle-chords"></button>
+      </span>
+      <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-melody" data-act="tab" data-v="melody" aria-controls="tab-melody" aria-keyshortcuts="Tab">Melodía</button>
+        <button class="tab-mute" id="mute-melody" data-act="toggle-melody"></button>
+      </span>
+      <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab">Percusión</button>
+        <button class="tab-mute" id="mute-drums" data-act="toggle-drums"></button>
+      </span>
       <kbd title="Pulsa el tabulador para cambiar de pestaña">⇥</kbd>
     </div>
     <div class="transport" id="transport"></div>

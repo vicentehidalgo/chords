@@ -461,8 +461,6 @@
         <div class="row">
           <button class="primary" data-act="mel-generate">Proponer melodía</button>
           <button data-act="mel-clear">Borrar melodía</button>
-          <button data-act="toggle-chords" aria-pressed="${state.playChords}" ${browserMuted() ? 'disabled' : ''}>Oír acordes</button>
-          <button data-act="toggle-melody" aria-pressed="${state.playMelody}" ${browserMuted() ? 'disabled' : ''}>Oír melodía</button>
         </div>
       </div>
       <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar.</p>
@@ -585,7 +583,6 @@
         </div>
         <div class="row">
           <label class="bpm">Vida <input type="range" id="c-life" min="0" max="100" step="5" value="${state.life}" aria-label="Variación entre compases"> <span id="life-value">${state.life}%</span></label>
-          <button data-act="toggle-drums" aria-pressed="${state.playDrums}" ${browserMuted() ? 'disabled' : ''}>Oír percusión</button>
           <button data-act="drum-clear" ${state.rings.length ? '' : 'disabled'}>Vaciar</button>
         </div>
       </div>
@@ -688,6 +685,7 @@
   }
 
   function renderMidi() {
+    renderMutes();
     const el = $('midi');
     $('midi-status').textContent = Midi.output ? '●' : '';
     if (!Midi.supported()) {
@@ -720,7 +718,7 @@
       <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> Sonar también en el navegador</label>
       <button data-act="midi-panic">Silenciar instrumento</button>`;
     $('m-out').onchange = (e) => { Midi.select(e.target.value); state.midiOut = e.target.value; save(); };
-    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMelody(); renderRings(); };
+    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMutes(); };
     const ch = (id, prop) => {
       if ($(id)) $(id).onchange = (e) => { Midi.silence(); state[prop] = Number(e.target.value); save(); };
     };
@@ -745,7 +743,6 @@
     }
     save();
     renderMidi();
-    renderMelody();
   }
 
   // Al enchufar o desenchufar: recupera el instrumento elegido o el primero que haya.
@@ -756,7 +753,6 @@
       if (found) Midi.select(found.id);
     }
     renderMidi();
-    renderMelody();
   };
 
   // Coordinación ---------------------------------------------------------------
@@ -777,6 +773,28 @@
   }
 
   const TABS = ['chords', 'melody', 'drums'];
+
+  const MUTES = {
+    chords: { prop: 'playChords', name: 'progresión' },
+    melody: { prop: 'playMelody', name: 'melodía' },
+    drums: { prop: 'playDrums', name: 'percusión' },
+  };
+  const SPEAKER = '<path fill="currentColor" stroke="none" d="M2 6h3l4-3.5v11L5 10H2z"/>';
+  const ICON_ON = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6.3 6.3 0 0 1 0 9"/></svg>`;
+  const ICON_OFF = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="m11 6 4 4m0-4-4 4"/></svg>`;
+
+  function renderMutes() {
+    TABS.forEach((t) => {
+      const { prop, name } = MUTES[t];
+      const btn = $('mute-' + t);
+      const off = !state[prop];
+      btn.innerHTML = off ? ICON_OFF : ICON_ON;
+      btn.disabled = browserMuted();
+      btn.setAttribute('aria-pressed', String(off));
+      btn.setAttribute('aria-label', 'Silenciar ' + name);
+      btn.title = browserMuted() ? 'El sonido del navegador está apagado en el menú MIDI' : 'Silenciar ' + name;
+    });
+  }
 
   function applyTab() {
     TABS.forEach((t) => {
@@ -918,11 +936,11 @@
       r.steps = Drums.rotate(r.steps, Number(el.dataset.d));
       changedRings();
     },
-    'toggle-drums'() { state.playDrums = !state.playDrums; save(); renderRings(); },
+    'toggle-drums'() { state.playDrums = !state.playDrums; save(); renderMutes(); },
     'midi-panic'() { Midi.panic(); },
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
-    'toggle-chords'() { state.playChords = !state.playChords; save(); renderMelody(); },
-    'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMelody(); },
+    'toggle-chords'() { state.playChords = !state.playChords; save(); renderMutes(); },
+    'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
     'mel-generate'() {
       snapshot();
       ui.seed += 1;

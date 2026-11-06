@@ -122,6 +122,10 @@ select.wide, .field.wide select { min-width: 200px; }
 .tabs { display: flex; gap: 2px; align-items: center; }
 .tabs button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 7px 14px 6px; font: 600 18px/1.2 var(--serif); color: var(--ink-2); }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-item { display: inline-flex; align-items: center; }
+.tabs .tab-mute { display: inline-flex; padding: 3px; margin-left: -8px; margin-right: 4px; background: none; border: 1px solid transparent; border-radius: 4px; color: var(--ink-2); }
+.tabs .tab-mute svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
+.tabs .tab-mute[aria-pressed="true"] { color: var(--accent); }
 .tabs kbd { font: 12px var(--sans); color: var(--ink-2); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; margin-left: 8px; }
 .transport { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding-bottom: 6px; }
 .transport select { min-width: 0; padding: 5px 6px; }
