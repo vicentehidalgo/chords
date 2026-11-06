@@ -128,5 +128,21 @@
     });
   }
 
-  globalThis.Melody = { STEPS, role, rows, snap, midiOf, tonicMidi, hints, generate, seeded };
+  // Golpes de acorde dentro del compás (en corcheas).
+  const COMP = {
+    whole: { name: 'Redonda', hits: [0] },
+    quarters: { name: 'Negras', hits: [0, 2, 4, 6] },
+    charleston: { name: 'Charlestón', hits: [0, 3] },
+    eighths: { name: 'Corcheas', hits: [0, 1, 2, 3, 4, 5, 6, 7] },
+  };
+
+  // Swing en % del pulso que ocupa la primera corchea: 50 es recto, 67 es tresillo.
+  // Solo se retrasan las corcheas a contratiempo; la parte fuerte no se mueve.
+  const swingShift = (step, swing, stepMs) => (step % 2 ? (swing / 100 - .5) * 2 * stepMs : 0);
+
+  // Duración real entre dos pasos del compás, teniendo en cuenta el swing.
+  const spanMs = (from, to, swing, stepMs) =>
+    (to - from) * stepMs + swingShift(to, swing, stepMs) - swingShift(from, swing, stepMs);
+
+  globalThis.Melody = { COMP, swingShift, spanMs, STEPS, role, rows, snap, midiOf, tonicMidi, hints, generate, seeded };
 })();

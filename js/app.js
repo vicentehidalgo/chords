@@ -14,7 +14,7 @@
   const DEFAULTS = {
     tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin',
     outside: true, smooth: true, bpm: 88, loop: true, playChords: true, playMelody: true,
-    midiOn: false, midiOut: null, midiSend: 'both', midiChordCh: 1, midiMelodyCh: 2, localSound: true,
+    tab: 'chords', swing: 50, comp: 'whole', midiOn: false, midiOut: null, midiSend: 'both', midiChordCh: 1, midiMelodyCh: 2, localSound: true,
     prog: [],
   };
   const state = { ...DEFAULTS };
@@ -155,10 +155,11 @@
       .map((s) => `<option value="${s.id}" ${s.id === state.scale ? 'selected' : ''}>${s.name}</option>`).join('')}</optgroup>`).join('');
 
     $('controls').innerHTML = `
-      <label class="field"><span>Tónica</span><select id="c-tonic">${tonics}</select></label>
-      <label class="field wide"><span>Escala o modo</span><select id="c-scale">${scales}</select></label>
-      <div class="field"><span>Acordes</span>${seg('level', [[0, 'Tríadas'], [1, 'Con 7ª'], [2, 'Todos']], state.level)}</div>
-      <div class="field"><span>Ver en</span>${seg('instrument', [['guitar', 'Guitarra'], ['piano', 'Piano'], ['both', 'Ambos']], state.instrument)}</div>
+      <select id="c-tonic" aria-label="Tónica">${tonics}</select>
+      <select id="c-scale" class="wide" aria-label="Escala o modo">${scales}</select>
+      ${seg('level', [[0, 'Tríadas'], [1, 'Con 7ª'], [2, 'Todos']], state.level)}
+      ${seg('instrument', [['guitar', 'Guitarra'], ['piano', 'Piano'], ['both', 'Ambos']], state.instrument)}`;
+    $('options').innerHTML = `
       <div class="field"><span>Notas</span>${seg('notation', [['latin', 'Do Re Mi'], ['intl', 'C D E']], state.notation)}</div>
       <label class="check"><input type="checkbox" id="c-outside" ${state.outside ? 'checked' : ''}> Sugerir fuera de escala</label>
       <label class="check"><input type="checkbox" id="c-smooth" ${state.smooth ? 'checked' : ''}> Enlazar posiciones</label>`;
@@ -188,23 +189,44 @@
         <div class="chips">${presetButtons().slice(0, 4).join('') || '<span class="muted">Elige la tónica en «Siguiente acorde».</span>'}</div>
       </div>`;
 
-    $('strip').innerHTML = `
-      <div class="strip-head">
-        <h2>Progresión <span class="muted">${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}</span></h2>
-        <div class="transport">
-          <button class="primary" data-act="play" ${chords.length ? '' : 'disabled'}>${ui.playing ? '■ Parar' : '▶ Reproducir'}</button>
-          <label class="bpm">${state.bpm} ppm <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
-          <button data-act="toggle-loop" aria-pressed="${state.loop}">Bucle</button>
-          <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>Deshacer</button>
-          <button data-act="clear" ${chords.length ? '' : 'disabled'}>Vaciar</button>
-        </div>
-      </div>
-      <div class="pcs">${chords.length ? cards : empty}</div>`;
+    $('strip').innerHTML = `<div class="pcs">${chords.length ? cards : empty}</div>`;
+    renderTransport();
+  }
+
+  function renderTransport() {
+    $('transport').innerHTML = `
+      <button class="primary" data-act="play" ${chords.length ? '' : 'disabled'}>${ui.playing ? '■ Parar' : '▶ Reproducir'}</button>
+      <label class="bpm">${state.bpm} ppm <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
+      <label class="bpm">Swing <input type="range" id="c-swing" min="50" max="75" step="1" value="${state.swing}" aria-label="Swing"> <span id="swing-value">${swingLabel()}</span></label>
+      <select id="c-comp" aria-label="Ritmo de los acordes">${Object.entries(M.COMP).map(([id, c]) =>
+        `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${c.name}</option>`).join('')}</select>
+      <button data-act="toggle-loop" aria-pressed="${state.loop}">Bucle</button>
+      <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>Deshacer</button>
+      <button data-act="clear" ${chords.length ? '' : 'disabled'}>Vaciar</button>`;
     $('c-bpm').oninput = (e) => {
       state.bpm = Number(e.target.value);
       e.target.parentElement.firstChild.textContent = state.bpm + ' ppm ';
       save();
     };
+    $('c-swing').oninput = (e) => {
+      state.swing = Number(e.target.value);
+      $('swing-value').textContent = swingLabel();
+      updateSwingHint();
+      save();
+    };
+    $('c-comp').onchange = (e) => { state.comp = e.target.value; updateSwingHint(); save(); };
+    updateSwingHint();
+  }
+
+  const swingLabel = () => (state.swing === 50 ? 'recto' : state.swing + '%');
+
+  // Con golpes solo en partes fuertes el swing no altera los acordes: se avisa.
+  function updateSwingHint() {
+    const onBeats = M.COMP[state.comp].hits.every((s) => s % 2 === 0);
+    $('c-comp').title = state.swing > 50 && onBeats
+      ? 'Este ritmo no tiene contratiempos: el swing solo se oirá en la melodía'
+      : 'Ritmo de los acordes';
+    $('c-comp').classList.toggle('needs-offbeat', state.swing > 50 && onBeats);
   }
 
   // Sugerencias ----------------------------------------------------------------
@@ -233,7 +255,7 @@
         </span>
         ${origin ? `<span class="origin">${origin}</span>` : ''}
         <span class="sg-body">
-          <span class="why">${s.reasons.slice(0, 3).map((r) => `<span class="r-${r.kind}">${r.text}</span>`).join('')}</span>
+          <span class="why">${s.reasons.slice(0, 2).map((r) => `<span class="r-${r.kind}">${r.text}</span>`).join('')}</span>
           <span class="sg-dg">${diagramsFor(c, gv, pv, false)}</span>
         </span>
       </button>
@@ -254,7 +276,7 @@
     const currentV = voicings[sel];
 
     const nIn = ui.more ? a.length : Math.min(a.length, 6);
-    const nOut = ui.more ? 8 : 3;
+    const nOut = ui.more ? 8 : 2;
     const current = chords[sel];
     const title = current
       ? `Después de ${nameHTML(current)}`
@@ -330,9 +352,7 @@
       return;
     }
     const { c } = f;
-    const groups = roleGroups(c);
     const origin = originLabel(c);
-    const chips = (list) => list.map((n) => `<b>${n.label}</b>`).join(' ') || '<span class="muted">ninguna</span>';
     const nav = (act, i, len) => (len > 1 ? `<div class="vnav">
         <button data-act="${act}" data-d="-1" aria-label="Posición anterior">‹</button><span>${i + 1} / ${len}</span>
         <button data-act="${act}" data-d="1" aria-label="Posición siguiente">›</button></div>` : '');
@@ -354,15 +374,28 @@
         </div>
       </div>
       <p class="meta"><span class="tag fn-${c.fn}">${FN_LABEL[c.fn]}</span> ${c.q.label}${origin ? ' · ' + origin : ''}</p>
-      <p class="tones">${c.tones.map((t) => `<span><b>${noteLabel(t)}</b><i>${t.deg.replace('b', '♭').replace('#', '♯')}</i></span>`).join('')}</p>
-      <div class="bigs">${big.join('')}</div>
-      <h3>Notas para tu melodía</h3>
-      <dl class="roles">
-        <div class="role-safe"><dt>Seguras</dt><dd>${chips(groups.safe)}</dd></div>
-        <div class="role-tension"><dt>Dan tensión</dt><dd>${chips(groups.tension)}</dd></div>
-        <div class="role-avoid"><dt>De paso</dt><dd>${chips(groups.avoid)}</dd></div>
-      </dl>
-      ${melodyMap(c)}`;
+      <div class="detail-body">
+        <p class="tones">${c.tones.map((t) => `<span><b>${noteLabel(t)}</b><i>${t.deg.replace('b', '♭').replace('#', '♯')}</i></span>`).join('')}</p>
+        <div class="bigs">${big.join('')}</div>
+      </div>`;
+  }
+
+  function renderMelodyMap() {
+    const c = chords[ui.sel];
+    if (!c) { $('melody-map').innerHTML = ''; return; }
+    const groups = roleGroups(c);
+    const chips = (list) => list.map((n) => `<b>${n.label}</b>`).join(' ') || '<span class="muted">ninguna</span>';
+    $('melody-map').innerHTML = `<div class="map">
+      <div class="map-side">
+        <h2>Sobre ${nameHTML(c)}</h2>
+        <dl class="roles">
+          <div class="role-safe"><dt>Seguras</dt><dd>${chips(groups.safe)}</dd></div>
+          <div class="role-tension"><dt>Dan tensión</dt><dd>${chips(groups.tension)}</dd></div>
+          <div class="role-avoid"><dt>De paso</dt><dd>${chips(groups.avoid)}</dd></div>
+        </dl>
+      </div>
+      <div class="map-instruments">${melodyMap(c)}</div>
+    </div>`;
   }
 
   // Editor de melodía ----------------------------------------------------------
@@ -373,8 +406,7 @@
     const left = scroller ? scroller.scrollLeft : 0;
 
     if (!chords.length) {
-      el.innerHTML = `<div class="panel-head"><h2>Melodía</h2></div>
-        <p class="muted">Crea una progresión y aquí podrás escribir una melodía sobre ella.</p>`;
+      el.innerHTML = `<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir una melodía sobre ella.</p>`;
       return;
     }
 
@@ -383,7 +415,7 @@
     const hint = melodyHints(list);
 
     const head = chords.map((c, i) =>
-      `<div class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" style="grid-column:span ${M.STEPS}">${nameHTML(c)}</div>`).join('');
+      `<button class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" data-act="select" data-i="${i}" style="grid-column:span ${M.STEPS}" aria-label="Ver notas sobre ${chordLabel(c)}">${nameHTML(c)}</button>`).join('');
 
     const rowsHTML = list.map((off) => {
       const pc = mod(key.pc + off);
@@ -411,7 +443,12 @@
 
     el.innerHTML = `
       <div class="panel-head">
-        <h2>Melodía</h2>
+        <div class="mel-legend">
+          <span class="r-chord"><i></i>Del acorde: reposo</span>
+          <span class="r-tension"><i></i>De la escala: movimiento</span>
+          <span class="r-avoid"><i></i>Choca: úsala de paso</span>
+          <span class="r-out"><i></i>Fuera de escala</span>
+        </div>
         <div class="row">
           <button class="primary" data-act="mel-generate">Proponer melodía</button>
           <button data-act="mel-clear">Borrar melodía</button>
@@ -420,14 +457,8 @@
         </div>
       </div>
       <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar.</p>
-      <div class="mel-legend">
-        <span class="r-chord"><i></i>Del acorde: reposo</span>
-        <span class="r-tension"><i></i>De la escala: movimiento</span>
-        <span class="r-avoid"><i></i>Choca: úsala de paso</span>
-        <span class="r-out"><i></i>Fuera de escala</span>
-      </div>
       <div class="mel-scroll">
-        <div class="mel-grid" style="--cols:${steps}">
+        <div class="mel-grid" style="--cols:${steps};--rows:${list.length}">
           <div class="mel-corner"></div>${head}${rowsHTML}
           <div class="playhead" hidden></div>
         </div>
@@ -460,6 +491,15 @@
       emitNote(M.midiOf(off, key));
     }
     save();
+    if (ui.sel !== i) {
+      // El mapa de notas sigue al acorde sobre el que estás escribiendo.
+      ui.sel = i;
+      ui.preview = null;
+      renderStrip();
+      renderNext();
+      renderDetail();
+      renderMelodyMap();
+    }
     renderMelody();
   }
 
@@ -473,8 +513,8 @@
   function renderField() {
     const list = [...catalog.values()].filter((c) => c.origin.kind === 'scale' && levelAllows(c));
     $('field').innerHTML = `
-      <div class="panel-head"><h2>Acordes de la escala</h2></div>
-      <p class="scale-notes">${key.notes.map((n) => `<span><b>${noteLabel(n)}</b><i>${n.deg.replace('b', '♭').replace('#', '♯')}</i></span>`).join('')}</p>
+      <div class="panel-head"><h2>Acordes de la escala</h2>
+        <p class="scale-inline">${key.notes.map((n) => noteLabel(n)).join(' ')}</p></div>
       <div class="fieldchips">${list.map((c) =>
         `<button class="fc fn-${c.fn}" data-act="add" data-id="${c.id}" aria-label="Añadir ${chordLabel(c)}"><span class="roman">${c.roman}</span>${nameHTML(c)}</button>`).join('')}</div>`;
   }
@@ -511,12 +551,13 @@
 
   function renderMidi() {
     const el = $('midi');
+    $('midi-status').textContent = Midi.output ? '●' : '';
     if (!Midi.supported()) {
-      el.innerHTML = `<h2>MIDI</h2><p class="muted">Este navegador no permite MIDI. Abre la web en Chrome o Edge.</p>`;
+      el.innerHTML = `<p class="muted">Este navegador no permite MIDI. Abre la web en Chrome o Edge.</p>`;
       return;
     }
     if (!Midi.connected) {
-      el.innerHTML = `<h2>MIDI</h2>
+      el.innerHTML = `
         <button data-act="midi-connect">Conectar instrumento</button>
         <p class="muted">Enchúfalo por USB antes de conectar. El navegador te pedirá permiso.</p>
         ${ui.midiError ? `<p class="midi-error">${ui.midiError}</p>` : ''}`;
@@ -525,10 +566,10 @@
     const outs = Midi.list();
     const current = Midi.output;
     if (!outs.length) {
-      el.innerHTML = `<h2>MIDI</h2><p class="muted">No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.</p>`;
+      el.innerHTML = `<p class="muted">No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.</p>`;
       return;
     }
-    el.innerHTML = `<h2>MIDI</h2>
+    el.innerHTML = `
       <label class="field wide"><span>Instrumento</span><select id="m-out">${outs.map((o) =>
         `<option value="${escapeAttr(o.id)}" ${current && o.id === current.id ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select></label>
       <div class="field"><span>Enviar</span>${seg('midi-send', [['chords', 'Progresión'], ['melody', 'Melodía'], ['both', 'Las dos']], state.midiSend)}</div>
@@ -584,8 +625,23 @@
     renderNext();
     renderDetail();
     renderMelody();
+    renderMelodyMap();
     renderField();
     renderPresets();
+    applyTab();
+  }
+
+  function applyTab() {
+    ['chords', 'melody'].forEach((t) => {
+      $('tab-' + t).hidden = state.tab !== t;
+      $('tab-btn-' + t).setAttribute('aria-selected', String(state.tab === t));
+    });
+  }
+
+  function setTab(tab) {
+    state.tab = tab;
+    save();
+    applyTab();
   }
 
   function update() {
@@ -620,6 +676,7 @@
   }
 
   const ACTIONS = {
+    tab(el) { setTab(el.dataset.v); },
     level(el) { state.level = Number(el.dataset.v); update(); },
     instrument(el) { state.instrument = el.dataset.v; update(); },
     notation(el) { state.notation = el.dataset.v; update(); },
@@ -728,9 +785,9 @@
   }
 
   function highlight(i) {
-    document.querySelectorAll('.pc.is-playing').forEach((n) => n.classList.remove('is-playing'));
-    const el = document.querySelector(`.pc[data-i="${i}"]`);
-    if (el) el.classList.add('is-playing');
+    document.querySelectorAll('.is-playing').forEach((n) => n.classList.remove('is-playing'));
+    document.querySelectorAll(`.pc[data-i="${i}"], .mel-chord[data-i="${i}"]`)
+      .forEach((n) => n.classList.add('is-playing'));
   }
 
   // Los pasos se programan con un poco de antelación: así el MIDI lleva marcas de
@@ -738,14 +795,21 @@
   const LOOKAHEAD_MS = 120;
 
   function scheduleStep(p, at) {
-    const stepDur = 30 / state.bpm;
+    const stepMs = 30000 / state.bpm;
     const { i, s } = p;
-    if (s === 0) {
+    const { hits } = M.COMP[state.comp];
+    const hit = hits.indexOf(s);
+    if (hit >= 0) {
       const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
-      if (v) emitChord(v.midis, stepDur * M.STEPS * .95, .15, at, state.playChords);
+      const to = hit + 1 < hits.length ? hits[hit + 1] : M.STEPS;
+      const dur = M.spanMs(s, to, state.swing, stepMs) * .95 / 1000;
+      if (v) emitChord(v.midis, dur, .15, at, state.playChords);
     }
     const n = melodyAt(p.list, i, s);
-    if (n) emitNote(M.midiOf(n.off, key), n.len * stepDur * .92, .32, at, state.playMelody);
+    if (n) {
+      const dur = M.spanMs(s, s + n.len, state.swing, stepMs) * .92 / 1000;
+      emitNote(M.midiOf(n.off, key), dur, .32, at, state.playMelody);
+    }
     setTimeout(() => {
       if (ui.playing !== p) return;
       if (s === 0) highlight(i);
@@ -762,10 +826,13 @@
       if (now >= p.endAt) stop();
       return;
     }
-    while (p.next < now + LOOKAHEAD_MS) {
+    // El margen se mide con el swing ya aplicado: una corchea retrasada no debe
+    // programarse tan lejos que parar no pueda alcanzarla.
+    const stepMs = 30000 / state.bpm;
+    while (p.next + M.swingShift(p.s, state.swing, stepMs) < now + LOOKAHEAD_MS) {
       if (p.i >= chords.length) p.i = 0; // se quitó un acorde mientras sonaba
-      scheduleStep(p, p.next);
-      p.next += 30000 / state.bpm;
+      scheduleStep(p, p.next + M.swingShift(p.s, state.swing, stepMs));
+      p.next += stepMs;
       p.s += 1;
       if (p.s >= M.STEPS) {
         p.s = 0;
@@ -822,7 +889,21 @@
     if (el && !el.disabled) ACTIONS[el.dataset.act](el);
   });
 
+  document.addEventListener('click', (e) => {
+    document.querySelectorAll('details.menu[open]').forEach((m) => {
+      if (!m.contains(e.target)) m.open = false;
+    });
+  });
+
   document.addEventListener('keydown', (e) => {
+    // Tab cambia de pestaña. Mayús+Tab conserva la navegación por teclado del navegador.
+    if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      if (document.activeElement) document.activeElement.blur();
+      setTab(state.tab === 'chords' ? 'melody' : 'chords');
+      return;
+    }
+    if (e.key === 'Escape') document.querySelectorAll('details.menu[open]').forEach((m) => { m.open = false; });
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); ACTIONS.undo(); return; }
     if (e.key === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); ACTIONS.play(); }

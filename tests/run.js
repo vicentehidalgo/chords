@@ -151,6 +151,17 @@ eq(missing, 0, 'cobertura de voicings');
   }
 }
 
+// Swing
+{
+  eq(Melody.swingShift(1, 50, 300), 0, 'recto no desplaza');
+  eq(Melody.swingShift(0, 67, 300), 0, 'la parte fuerte no se mueve');
+  eq(Math.round(Melody.swingShift(1, 75, 300)), 150, 'swing 75: media corchea');
+  eq(Math.round(Melody.spanMs(0, 1, 75, 300)), 450, 'corchea larga');
+  eq(Math.round(Melody.spanMs(1, 2, 75, 300)), 150, 'corchea corta');
+  eq(Math.round(Melody.spanMs(0, 8, 67, 300)), 2400, 'el compás no cambia de duración');
+  eq(Math.round(Melody.spanMs(3, 8, 67, 300)), 1398, 'golpe a contratiempo hasta el final');
+}
+
 // MIDI: con una salida falsa y un reloj controlado
 {
   globalThis.performance = { now: () => clock };

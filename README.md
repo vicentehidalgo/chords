@@ -11,6 +11,11 @@ con 29 escalas y modos. No necesita instalación: abre `index.html` en el navega
 - `js/midi.js`: salida a un instrumento externo.
 - `js/diagrams.js`, `js/audio.js`, `js/app.js`: dibujos, sonido e interfaz.
 
+## Atajos
+
+- `Tab`: cambia entre Progresión y Melodía. `Mayús+Tab` recorre los controles.
+- `Espacio`: reproduce o para. `Cmd/Ctrl+Z`: deshace.
+
 ## MIDI
 
 Conecta el instrumento por USB y pulsa «Conectar instrumento». Eliges qué enviar
