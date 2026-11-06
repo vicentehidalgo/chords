@@ -8,6 +8,7 @@ load('js/melody.js');
 globalThis.performance = globalThis.performance || { now: () => clock };
 var clock = 1000;
 load('js/midi.js');
+load('js/drums.js');
 
 const { makeKey, harmonicField, outsideChords, chordText, noteName, makeChord, note } = Theory;
 let failed = 0;
@@ -160,6 +161,68 @@ eq(missing, 0, 'cobertura de voicings');
   eq(Math.round(Melody.spanMs(1, 2, 75, 300)), 150, 'corchea corta');
   eq(Math.round(Melody.spanMs(0, 8, 67, 300)), 2400, 'el compás no cambia de duración');
   eq(Math.round(Melody.spanMs(3, 8, 67, 300)), 1398, 'golpe a contratiempo hasta el final');
+}
+
+// Percusión
+{
+  const txt = (a) => a.map((x) => (x ? 'x' : '.')).join('');
+  eq(txt(Drums.euclid(3, 8)), 'x..x..x.', 'tresillo euclídeo');
+  eq(txt(Drums.euclid(4, 16)), 'x...x...x...x...', 'negras');
+  eq(txt(Drums.euclid(0, 5)), '.....', 'cero golpes');
+  eq(txt(Drums.euclid(5, 5)), 'xxxxx', 'todos los golpes');
+  for (let n = 2; n <= Drums.MAX_STEPS; n++) {
+    for (let k = 0; k <= n; k++) {
+      if (Drums.euclid(k, n).reduce((a, b) => a + b, 0) !== k) eq(k, 'exacto', `euclid(${k},${n})`);
+    }
+  }
+  eq(txt(Drums.rotate(Drums.euclid(3, 8), 1)), '.x..x..x', 'rotar');
+  eq(Drums.necklaceName(Drums.euclid(3, 8)), 'Tresillo cubano', 'reconoce tresillo');
+  eq(Drums.necklaceName(Drums.rotate(Drums.euclid(5, 16), 3)), 'Bossa nova', 'reconoce rotaciones');
+  eq(Drums.necklaceName([1, 1, 0, 0, 0, 0, 1, 0]), null, 'no confunde un reparto irregular');
+
+  Drums.PRESETS.forEach((p) => {
+    const rings = Drums.presetRings(p);
+    eq(rings.length <= Drums.MAX_RINGS, true, p.name + ': anillos');
+    rings.forEach((r) => {
+      eq(Boolean(Drums.INSTRUMENTS[r.inst]), true, p.name + ': instrumento');
+      eq(r.steps.length >= 2 && r.steps.length <= Drums.MAX_STEPS, true, `${p.name}: pasos ${r.steps.length}`);
+      eq(r.steps.some(Boolean), true, p.name + ': con golpes');
+    });
+  });
+  for (let seed = 1; seed < 30; seed++) {
+    const rand = Melody.seeded(seed * 97);
+    const rings = Drums.invent(rand);
+    eq(rings.every((r) => r.steps.some(Boolean) && r.steps.length <= Drums.MAX_STEPS), true, 'invent válido');
+    Drums.mutate(rings, rand);
+    eq(rings.every((r) => r.steps.length >= 2), true, 'mutar conserva pasos');
+  }
+
+  const ctx = { life: 0, rand: () => .5, melody: [0, 3], chordHits: [0, 3] };
+  const r16 = (gate) => [{ inst: 'kick', steps: Array(16).fill(1), gate, muted: false }];
+  const posOf = (h) => h.map((x) => x.step);
+  eq(Drums.barHits(r16('free'), ctx).length, 16, 'libre toca todo');
+  eq(posOf(Drums.barHits(r16('melody'), ctx)), [0, 6], 'con la melodía: sus ataques');
+  eq(Drums.barHits(r16('gaps'), ctx).length, 14, 'en sus huecos: el resto');
+  eq(posOf(Drums.barHits(r16('chords'), ctx)), [0, 6], 'con los acordes');
+  eq(Drums.barHits([{ ...r16('free')[0], muted: true }], ctx), [], 'anillo mudo');
+  const poly = Drums.barHits([{ inst: 'clave', steps: [1, 1, 1, 1, 1], gate: 'free', muted: false }], ctx);
+  eq(poly.map((h) => h.pos), [0, .2, .4, .6, .8], 'cinco golpes reparten el compás');
+  eq(poly[0].velocity > poly[1].velocity, true, 'acento en la primera');
+  const steady = Drums.barHits(r16('free'), { ...ctx, life: 1, rand: () => .01 });
+  eq(steady.filter((h) => h.pos * 4 % 1 === 0).length, 4, 'la vida nunca quita las partes fuertes');
+  const ghosts = Drums.barHits([{ inst: 'hat', steps: Array(16).fill(0), gate: 'free', muted: false }], { ...ctx, life: 1, rand: () => .01 });
+  eq(ghosts.length > 0 && ghosts.every((h) => h.velocity < 50), true, 'golpes fantasma suaves');
+
+  eq(Drums.swungPos(.125, 50), .125, 'recto no altera');
+  eq(Drums.swungPos(0, 67), 0, 'la parte no se mueve');
+  eq(Math.abs(Drums.swungPos(.125, 75) - .1875) < 1e-9, true, 'corchea a contratiempo con swing');
+  eq(Math.abs(Drums.swungPos(.25, 75) - .25) < 1e-9, true, 'negra intacta');
+  for (let i = 1; i < 64; i++) {
+    if (Drums.swungPos(i / 64, 75) <= Drums.swungPos((i - 1) / 64, 75)) eq(i, 'monótono', 'swing no reordena');
+  }
+  // Coincide con el swing de los acordes y la melodía.
+  const barMs = 2400;
+  eq(Math.round(Drums.swungPos(1 / 8, 67) * barMs - barMs / 8), Math.round(Melody.swingShift(1, 67, 300)), 'mismo swing que la melodía');
 }
 
 // MIDI: con una salida falsa y un reloj controlado

@@ -24,6 +24,7 @@
     <div role="tablist" aria-label="Secciones" class="tabs">
       <button role="tab" id="tab-btn-chords" data-act="tab" data-v="chords" aria-controls="tab-chords" aria-keyshortcuts="Tab">Progresión</button>
       <button role="tab" id="tab-btn-melody" data-act="tab" data-v="melody" aria-controls="tab-melody" aria-keyshortcuts="Tab">Melodía</button>
+      <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab">Percusión</button>
       <kbd title="Pulsa el tabulador para cambiar de pestaña">⇥</kbd>
     </div>
     <div class="transport" id="transport"></div>
@@ -46,12 +47,18 @@
       <section class="panel melody" aria-label="Melodía" id="melody"></section>
       <section class="panel" aria-label="Notas sobre el acorde" id="melody-map"></section>
     </div>
+
+    <div class="tab tab-drums" id="tab-drums" role="tabpanel" aria-labelledby="tab-btn-drums">
+      <section class="panel wheel-panel" aria-label="Rueda de ritmos" id="wheel"></section>
+      <section class="panel rings-panel" aria-label="Anillos" id="rings"></section>
+    </div>
   </main>
 
   <script src="js/theory.js"></script>
   <script src="js/suggest.js"></script>
   <script src="js/voicings.js"></script>
   <script src="js/melody.js"></script>
+  <script src="js/drums.js"></script>
   <script src="js/diagrams.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/midi.js"></script>

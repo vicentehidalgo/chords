@@ -8,18 +8,20 @@ con 29 escalas y modos. No necesita instalación: abre `index.html` en el navega
   tablas de pesos y las progresiones conocidas.
 - `js/melody.js`: papel de cada nota sobre un acorde, pistas y generador.
 - `js/voicings.js`: digitaciones de guitarra y posiciones de piano.
+- `js/drums.js`: rueda de ritmos, repartos euclídeos y variación entre compases.
 - `js/midi.js`: salida a un instrumento externo.
 - `js/diagrams.js`, `js/audio.js`, `js/app.js`: dibujos, sonido e interfaz.
 
 ## Atajos
 
-- `Tab`: cambia entre Progresión y Melodía. `Mayús+Tab` recorre los controles.
+- `Tab`: pasa a la pestaña siguiente (Progresión, Melodía, Percusión). `Mayús+Tab` recorre los controles.
 - `Espacio`: reproduce o para. `Cmd/Ctrl+Z`: deshace.
 
 ## MIDI
 
 Conecta el instrumento por USB y pulsa «Conectar instrumento». Eliges qué enviar
-(progresión, melodía o las dos) y por qué canal. Funciona en Chrome y Edge; Safari
+(progresión, melodía, percusión o cualquier combinación) y por qué canal. La percusión
+usa el mapa General MIDI, por defecto en el canal 10. Funciona en Chrome y Edge; Safari
 no tiene Web MIDI.
 
 Pruebas del motor, desde esta carpeta:

@@ -6,7 +6,7 @@
   const V = globalThis.Voicings;
   const D = globalThis.Diagrams;
   const M = globalThis.Melody;
-  const { Sound, Midi } = globalThis;
+  const { Sound, Midi, Drums } = globalThis;
   const { mod } = T;
   const $ = (id) => document.getElementById(id);
 
@@ -14,13 +14,22 @@
   const DEFAULTS = {
     tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin',
     outside: true, smooth: true, bpm: 88, loop: true, playChords: true, playMelody: true,
-    tab: 'chords', swing: 50, comp: 'whole', midiOn: false, midiOut: null, midiSend: 'both', midiChordCh: 1, midiMelodyCh: 2, localSound: true,
+    tab: 'chords', swing: 50, comp: 'whole', midiOn: false, midiOut: null,
+    sendChords: true, sendMelody: true, sendDrums: true,
+    midiChordCh: 1, midiMelodyCh: 2, midiDrumCh: 10, localSound: true,
+    rings: [], life: 0, playDrums: true,
     prog: [],
   };
   const state = { ...DEFAULTS };
   try {
     Object.assign(state, JSON.parse(localStorage.getItem(STORE) || '{}'));
   } catch (e) { /* sin almacenamiento: se usan los valores por defecto */ }
+  // Versiones anteriores guardaban una sola opción de envío MIDI.
+  if (state.midiSend) {
+    state.sendChords = state.midiSend !== 'melody';
+    state.sendMelody = state.midiSend !== 'chords';
+    delete state.midiSend;
+  }
 
   // Estado que no se guarda.
   const ui = {
@@ -38,7 +47,7 @@
   }
 
   function snapshot() {
-    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel }));
+    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings }));
     if (ui.undo.length > 60) ui.undo.shift();
   }
 
@@ -195,7 +204,7 @@
 
   function renderTransport() {
     $('transport').innerHTML = `
-      <button class="primary" data-act="play" ${chords.length ? '' : 'disabled'}>${ui.playing ? '■ Parar' : '▶ Reproducir'}</button>
+      <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? '■ Parar' : '▶ Reproducir'}</button>
       <label class="bpm">${state.bpm} ppm <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
       <label class="bpm">Swing <input type="range" id="c-swing" min="50" max="75" step="1" value="${state.swing}" aria-label="Swing"> <span id="swing-value">${swingLabel()}</span></label>
       <select id="c-comp" aria-label="Ritmo de los acordes">${Object.entries(M.COMP).map(([id, c]) =>
@@ -526,11 +535,140 @@
         : `<p class="muted">No hay progresiones guardadas para esta escala. Construye la tuya con las sugerencias.</p>`}`;
   }
 
+  // Percusión -------------------------------------------------------------------
+
+  const hasDrums = () => state.rings.some((r) => !r.muted && r.steps.some(Boolean));
+  const canPlay = () => chords.length > 0 || hasDrums();
+
+  function changedRings() {
+    save();
+    renderWheel();
+    renderRings();
+    renderTransport();
+  }
+
+  function renderWheel() {
+    const families = state.rings.map((r) => Drums.INSTRUMENTS[r.inst].family);
+    $('wheel').innerHTML = D.wheel(state.rings, families);
+  }
+
+  function ringRow(r, i) {
+    const k = r.steps.reduce((a, b) => a + b, 0);
+    const n = r.steps.length;
+    const options = (entries, value) => entries.map(([id, label]) =>
+      `<option value="${id}" ${id === value ? 'selected' : ''}>${label}</option>`).join('');
+    const name = Drums.necklaceName(r.steps);
+    return `<div class="ring-row fam-${Drums.INSTRUMENTS[r.inst].family} ${r.muted ? 'is-muted' : ''}">
+      <i class="swatch"></i>
+      <select class="ring-inst" data-ring="${i}" data-f="inst" aria-label="Instrumento">${options(Object.entries(Drums.INSTRUMENTS).map(([id, x]) => [id, x.name]), r.inst)}</select>
+      <label class="ring-num ring-n">Pasos <input type="range" min="2" max="${Drums.MAX_STEPS}" value="${n}" data-ring="${i}" data-f="n"><b id="ring-n-${i}">${n}</b></label>
+      <label class="ring-num ring-k">Golpes <input type="range" min="0" max="${n}" value="${k}" data-ring="${i}" data-f="k" id="ring-kr-${i}"><b id="ring-k-${i}">${k}</b></label>
+      <span class="row ring-acts">
+        <button data-act="ring-rotate" data-i="${i}" data-d="-1" aria-label="Girar a la izquierda">↺</button>
+        <button data-act="ring-rotate" data-i="${i}" data-d="1" aria-label="Girar a la derecha">↻</button>
+        <button data-act="ring-mute" data-i="${i}" aria-pressed="${r.muted}">Mudo</button>
+        <button data-act="ring-remove" data-i="${i}" aria-label="Quitar anillo">×</button>
+        <span class="necklace" id="ring-name-${i}">${name || ''}</span>
+      </span>
+      <select class="ring-gate" data-ring="${i}" data-f="gate" aria-label="Cuándo toca" title="Cuándo toca este anillo">${options(Object.entries(Drums.GATES), r.gate)}</select>
+    </div>`;
+  }
+
+  function renderRings() {
+    const full = state.rings.length >= Drums.MAX_RINGS;
+    $('rings').innerHTML = `
+      <div class="panel-head">
+        <div class="row">
+          <button class="primary" data-act="drum-invent">Inventar ritmo</button>
+          <button data-act="drum-mutate" ${state.rings.length ? '' : 'disabled'}>Mutar</button>
+          <button data-act="ring-add" ${full ? 'disabled' : ''}>Añadir anillo</button>
+        </div>
+        <div class="row">
+          <label class="bpm">Vida <input type="range" id="c-life" min="0" max="100" step="5" value="${state.life}" aria-label="Variación entre compases"> <span id="life-value">${state.life}%</span></label>
+          <button data-act="toggle-drums" aria-pressed="${state.playDrums}" ${browserMuted() ? 'disabled' : ''}>Oír percusión</button>
+          <button data-act="drum-clear" ${state.rings.length ? '' : 'disabled'}>Vaciar</button>
+        </div>
+      </div>
+      <div class="ring-list">${state.rings.length ? state.rings.map(ringRow).join('')
+        : `<p class="muted">Cada anillo es un instrumento y da una vuelta por compás. Si tienen distinto número de pasos, se forma una polirritmia. Elige un ritmo para empezar.</p>`}</div>
+      <div class="drum-presets">${Drums.PRESETS.map((p, i) =>
+        `<button data-act="drum-preset" data-i="${i}">${p.name}</button>`).join('')}</div>`;
+    $('c-life').oninput = (e) => {
+      state.life = Number(e.target.value);
+      $('life-value').textContent = state.life + '%';
+      save();
+    };
+  }
+
+  // Los deslizadores redibujan solo la rueda: rehacer la fila cortaría el arrastre.
+  function ringInput(el) {
+    const i = Number(el.dataset.ring);
+    const r = state.rings[i];
+    const f = el.dataset.f;
+    if (f === 'inst' || f === 'gate') {
+      r[f] = el.value;
+      changedRings();
+      return;
+    }
+    const value = Number(el.value);
+    const k = f === 'k' ? value : Math.min(r.steps.reduce((a, b) => a + b, 0), value);
+    const n = f === 'n' ? value : r.steps.length;
+    r.steps = Drums.euclid(k, n);
+    $(`ring-n-${i}`).textContent = n;
+    $(`ring-k-${i}`).textContent = k;
+    $(`ring-kr-${i}`).max = n;
+    $(`ring-name-${i}`).textContent = Drums.necklaceName(r.steps) || '';
+    save();
+    renderWheel();
+    renderTransport();
+  }
+
+  function drumHits(p) {
+    const stepMs = 30000 / state.bpm;
+    const barMs = stepMs * M.STEPS;
+    const mel = state.prog[p.i] ? state.prog[p.i].mel : [];
+    const barAt = p.next;
+    return Drums.barHits(state.rings, {
+      life: state.life / 100,
+      rand: Math.random,
+      melody: mel.flatMap((off, s) => (off === null ? [] : [s])),
+      chordHits: chords.length ? M.COMP[state.comp].hits : [],
+    }).map((h) => ({ ...h, at: barAt + Drums.swungPos(h.pos, state.swing) * barMs }));
+  }
+
+  function fireDrum(hit) {
+    const { at } = hit;
+    if (state.playDrums && !browserMuted()) Sound.drum(hit.inst, hit.velocity, (at - performance.now()) / 1000);
+    if (state.sendDrums) Midi.note(state.midiDrumCh, Drums.INSTRUMENTS[hit.inst].midi, 80, hit.velocity, at);
+    if (state.tab !== 'drums') return;
+    setTimeout(() => {
+      const dot = document.querySelector(`[data-dot="${hit.ringIndex}:${hit.step}"]`);
+      if (!dot) return;
+      dot.classList.add('flash');
+      setTimeout(() => dot.classList.remove('flash'), 110);
+    }, Math.max(0, at - performance.now()));
+  }
+
+  // Aguja de la rueda: sigue el compás en curso.
+  function animateHand() {
+    const p = ui.playing;
+    const hand = document.querySelector('.w-hand');
+    if (hand) {
+      hand.hidden = !p;
+      if (p && p.barSeen) {
+        const barMs = (30000 / state.bpm) * M.STEPS;
+        const angle = (((performance.now() - p.barSeen) / barMs) % 1) * 360;
+        hand.setAttribute('transform', `rotate(${angle} 220 220)`);
+      }
+    }
+    if (p) requestAnimationFrame(animateHand);
+  }
+
   // Salida de sonido: navegador, instrumento MIDI o ambos -----------------------
 
   const browserMuted = () => Boolean(Midi.output) && !state.localSound;
-  const sendsChords = () => state.midiSend !== 'melody';
-  const sendsMelody = () => state.midiSend !== 'chords';
+  const sendsChords = () => state.sendChords;
+  const sendsMelody = () => state.sendMelody;
 
   function emitChord(midis, dur = 1.6, gain = .2, at = performance.now(), hear = true) {
     const inst = state.instrument === 'piano' ? 'piano' : 'guitar';
@@ -572,18 +710,23 @@
     el.innerHTML = `
       <label class="field wide"><span>Instrumento</span><select id="m-out">${outs.map((o) =>
         `<option value="${escapeAttr(o.id)}" ${current && o.id === current.id ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select></label>
-      <div class="field"><span>Enviar</span>${seg('midi-send', [['chords', 'Progresión'], ['melody', 'Melodía'], ['both', 'Las dos']], state.midiSend)}</div>
+      <div class="field"><span>Enviar</span><div class="seg" role="group">
+        ${[['sendChords', 'Progresión'], ['sendMelody', 'Melodía'], ['sendDrums', 'Percusión']].map(([k, label]) =>
+          `<button data-act="midi-send" data-v="${k}" aria-pressed="${state[k]}">${label}</button>`).join('')}
+      </div></div>
       ${sendsChords() ? channelSelect('m-chord-ch', 'Canal progresión', state.midiChordCh) : ''}
       ${sendsMelody() ? channelSelect('m-melody-ch', 'Canal melodía', state.midiMelodyCh) : ''}
+      ${state.sendDrums ? channelSelect('m-drum-ch', 'Canal percusión', state.midiDrumCh) : ''}
       <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> Sonar también en el navegador</label>
       <button data-act="midi-panic">Silenciar instrumento</button>`;
     $('m-out').onchange = (e) => { Midi.select(e.target.value); state.midiOut = e.target.value; save(); };
-    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMelody(); };
+    $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMelody(); renderRings(); };
     const ch = (id, prop) => {
       if ($(id)) $(id).onchange = (e) => { Midi.silence(); state[prop] = Number(e.target.value); save(); };
     };
     ch('m-chord-ch', 'midiChordCh');
     ch('m-melody-ch', 'midiMelodyCh');
+    ch('m-drum-ch', 'midiDrumCh');
   }
 
   const escapeText = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
@@ -628,11 +771,15 @@
     renderMelodyMap();
     renderField();
     renderPresets();
+    renderWheel();
+    renderRings();
     applyTab();
   }
 
+  const TABS = ['chords', 'melody', 'drums'];
+
   function applyTab() {
-    ['chords', 'melody'].forEach((t) => {
+    TABS.forEach((t) => {
       $('tab-' + t).hidden = state.tab !== t;
       $('tab-btn-' + t).setAttribute('aria-selected', String(state.tab === t));
     });
@@ -721,6 +868,7 @@
       const snap = JSON.parse(last);
       state.prog = snap.prog;
       ui.sel = snap.sel;
+      state.rings = snap.rings;
       ui.cursor = null;
       update();
     },
@@ -739,7 +887,38 @@
     'voice-p'(el) { shiftVoicing('p', Number(el.dataset.d)); },
     play() { if (ui.playing) stop(); else play(); },
     'midi-connect'() { connectMidi(); },
-    'midi-send'(el) { Midi.silence(); state.midiSend = el.dataset.v; save(); renderMidi(); },
+    'midi-send'(el) { Midi.silence(); state[el.dataset.v] = !state[el.dataset.v]; save(); renderMidi(); },
+    'drum-preset'(el) {
+      snapshot();
+      state.rings = Drums.presetRings(Drums.PRESETS[Number(el.dataset.i)]);
+      changedRings();
+    },
+    'drum-invent'() {
+      snapshot();
+      ui.seed += 1;
+      state.rings = Drums.invent(M.seeded(ui.seed * 6151));
+      changedRings();
+    },
+    'drum-mutate'() {
+      snapshot();
+      ui.seed += 1;
+      Drums.mutate(state.rings, M.seeded(ui.seed * 3571));
+      changedRings();
+    },
+    'drum-clear'() { snapshot(); state.rings = []; changedRings(); },
+    'ring-add'() {
+      snapshot();
+      state.rings.push({ inst: 'rim', steps: Drums.euclid(3, 8), gate: 'free', muted: false });
+      changedRings();
+    },
+    'ring-remove'(el) { snapshot(); state.rings.splice(Number(el.dataset.i), 1); changedRings(); },
+    'ring-mute'(el) { const r = state.rings[Number(el.dataset.i)]; r.muted = !r.muted; changedRings(); },
+    'ring-rotate'(el) {
+      const r = state.rings[Number(el.dataset.i)];
+      r.steps = Drums.rotate(r.steps, Number(el.dataset.d));
+      changedRings();
+    },
+    'toggle-drums'() { state.playDrums = !state.playDrums; save(); renderRings(); },
     'midi-panic'() { Midi.panic(); },
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMelody(); },
@@ -766,6 +945,7 @@
   // Reproducción ---------------------------------------------------------------
 
   function melodyAt(list, i, s) {
+    if (!state.prog[i]) return null;
     const off = state.prog[i].mel[s];
     if (off === null || off === undefined) return null;
     // Dura hasta la siguiente nota o el final del compás.
@@ -799,7 +979,8 @@
     const { i, s } = p;
     const { hits } = M.COMP[state.comp];
     const hit = hits.indexOf(s);
-    if (hit >= 0) {
+    if (s === 0) p.queue.push(...drumHits(p));
+    if (hit >= 0 && chords[i]) {
       const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
       const to = hit + 1 < hits.length ? hits[hit + 1] : M.STEPS;
       const dur = M.spanMs(s, to, state.swing, stepMs) * .95 / 1000;
@@ -812,7 +993,7 @@
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
-      if (s === 0) highlight(i);
+      if (s === 0) { highlight(i); p.barSeen = performance.now(); }
       movePlayhead(i, s);
     }, Math.max(0, at - performance.now()));
   }
@@ -820,8 +1001,9 @@
   function schedule() {
     const p = ui.playing;
     if (!p) return;
-    if (!chords.length) { stop(); return; }
+    if (!canPlay()) { stop(); return; }
     const now = performance.now();
+    while (p.queue.length && p.queue[0].at < now + LOOKAHEAD_MS) fireDrum(p.queue.shift());
     if (p.endAt) {
       if (now >= p.endAt) stop();
       return;
@@ -830,14 +1012,15 @@
     // programarse tan lejos que parar no pueda alcanzarla.
     const stepMs = 30000 / state.bpm;
     while (p.next + M.swingShift(p.s, state.swing, stepMs) < now + LOOKAHEAD_MS) {
-      if (p.i >= chords.length) p.i = 0; // se quitó un acorde mientras sonaba
+      const bars = Math.max(1, chords.length);
+      if (p.i >= bars) p.i = 0; // se quitó un acorde mientras sonaba
       scheduleStep(p, p.next + M.swingShift(p.s, state.swing, stepMs));
       p.next += stepMs;
       p.s += 1;
       if (p.s >= M.STEPS) {
         p.s = 0;
         p.i += 1;
-        if (p.i >= chords.length) {
+        if (p.i >= bars) {
           if (!state.loop) { p.endAt = p.next; return; }
           p.i = 0;
         }
@@ -846,9 +1029,10 @@
   }
 
   function play() {
-    if (!chords.length) return;
-    ui.playing = { i: 0, s: 0, next: performance.now() + 40, list: M.rows(key, chords), endAt: 0 };
-    renderStrip();
+    if (!canPlay()) return;
+    ui.playing = { i: 0, s: 0, next: performance.now() + 40, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0 };
+    renderTransport();
+    animateHand();
   }
 
   function stop() {
@@ -858,7 +1042,7 @@
     const head = document.querySelector('.playhead');
     if (head) head.hidden = true;
     highlight(-1);
-    renderStrip();
+    renderTransport();
   }
 
   // Un temporizador en un worker sigue a su ritmo con la ventana en segundo plano,
@@ -885,6 +1069,15 @@
     }
     const label = e.target.closest('[data-note]');
     if (label) { emitNote(M.midiOf(Number(label.dataset.note), key)); return; }
+    const dot = e.target.closest('[data-dot]');
+    if (dot) {
+      const [ring, step] = dot.dataset.dot.split(':').map(Number);
+      snapshot();
+      const { steps } = state.rings[ring];
+      steps[step] = steps[step] ? 0 : 1;
+      changedRings();
+      return;
+    }
     const el = e.target.closest('[data-act]');
     if (el && !el.disabled) ACTIONS[el.dataset.act](el);
   });
@@ -895,12 +1088,19 @@
     });
   });
 
+  document.addEventListener('input', (e) => {
+    if (e.target.dataset.ring !== undefined && e.target.type === 'range') ringInput(e.target);
+  });
+  document.addEventListener('change', (e) => {
+    if (e.target.dataset.ring !== undefined && e.target.tagName === 'SELECT') ringInput(e.target);
+  });
+
   document.addEventListener('keydown', (e) => {
     // Tab cambia de pestaña. Mayús+Tab conserva la navegación por teclado del navegador.
     if (e.key === 'Tab' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
       if (document.activeElement) document.activeElement.blur();
-      setTab(state.tab === 'chords' ? 'melody' : 'chords');
+      setTab(TABS[(TABS.indexOf(state.tab) + 1) % TABS.length]);
       return;
     }
     if (e.key === 'Escape') document.querySelectorAll('details.menu[open]').forEach((m) => { m.open = false; });

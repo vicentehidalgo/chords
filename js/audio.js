@@ -63,5 +63,61 @@
     tone(midi, ctx.currentTime + .01 + Math.max(0, delay), dur, gain, 'lead');
   }
 
-  globalThis.Sound = { chord, note };
+  // Percusión sintetizada ------------------------------------------------------
+
+  let noiseBuffer = null;
+  function noise(at, dur, gain, filterType, freq, q = 1) {
+    if (!noiseBuffer) {
+      noiseBuffer = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+      const data = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = filterType;
+    filter.frequency.value = freq;
+    filter.Q.value = q;
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(gain, at);
+    env.gain.exponentialRampToValueAtTime(.0001, at + dur);
+    src.connect(filter).connect(env).connect(master);
+    src.start(at, Math.random() * .5, dur + .02);
+  }
+
+  function pitched(at, dur, gain, type, from, to = from) {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, at);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), at + dur * .6);
+    const env = ctx.createGain();
+    env.gain.setValueAtTime(gain, at);
+    env.gain.exponentialRampToValueAtTime(.0001, at + dur);
+    osc.connect(env).connect(master);
+    osc.start(at);
+    osc.stop(at + dur + .02);
+  }
+
+  const KIT = {
+    kick(t, g) { pitched(t, .28, g * .95, 'sine', 150, 45); noise(t, .012, g * .2, 'lowpass', 2000); },
+    tom(t, g) { pitched(t, .3, g * .7, 'sine', 190, 95); },
+    snare(t, g) { noise(t, .17, g * .55, 'bandpass', 1900, .7); pitched(t, .1, g * .35, 'triangle', 200, 150); },
+    clap(t, g) {
+      [0, .011, .022].forEach((d) => noise(t + d, .02, g * .4, 'bandpass', 1300, 1.2));
+      noise(t + .03, .13, g * .45, 'bandpass', 1300, 1);
+    },
+    rim(t, g) { pitched(t, .035, g * .4, 'square', 1700); pitched(t, .05, g * .4, 'triangle', 480); },
+    hat(t, g) { noise(t, .045, g * .3, 'highpass', 8000); },
+    openhat(t, g) { noise(t, .3, g * .28, 'highpass', 7000); },
+    shaker(t, g) { noise(t, .06, g * .16, 'bandpass', 6000, .8); },
+    cowbell(t, g) { pitched(t, .2, g * .2, 'square', 562); pitched(t, .2, g * .2, 'square', 845); },
+    clave(t, g) { pitched(t, .05, g * .55, 'sine', 2500); },
+  };
+
+  function drum(name, velocity = 100, delay = 0) {
+    if (!ensure()) return;
+    KIT[name](ctx.currentTime + .01 + Math.max(0, delay), .75 * velocity / 127);
+  }
+
+  globalThis.Sound = { chord, note, drum };
 })();

@@ -108,5 +108,39 @@
     return s + '</svg>';
   }
 
-  globalThis.Diagrams = { guitar, piano, pianoRange, fretboard };
+  // Rueda de ritmos: un anillo por instrumento, con la primera posición arriba.
+  function wheel(rings, families) {
+    const SIZE = 440;
+    const C = SIZE / 2;
+    const OUTER = 204;
+    const GAP = 30;
+    const point = (radius, step, n) => {
+      const a = (step / n) * 2 * Math.PI - Math.PI / 2;
+      return [(C + radius * Math.cos(a)).toFixed(1), (C + radius * Math.sin(a)).toFixed(1)];
+    };
+    let s = `<svg class="dg-wheel" viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Rueda de ritmos">`;
+    for (let b = 0; b < 4; b++) {
+      const [x, y] = point(OUTER + 12, b, 4);
+      s += `<line class="w-beat" x1="${C}" y1="${C}" x2="${x}" y2="${y}"/>`;
+      const [tx, ty] = point(OUTER + 12, b + .17, 4);
+      s += `<text class="w-num" x="${tx}" y="${ty}" text-anchor="middle">${b + 1}</text>`;
+    }
+    rings.forEach((r, i) => {
+      const radius = OUTER - i * GAP;
+      const n = r.steps.length;
+      const fam = 'fam-' + families[i];
+      const pts = r.steps.flatMap((on, step) => (on ? [point(radius, step, n).join(',')] : []));
+      s += `<g class="w-ring ${fam} ${r.muted ? 'is-muted' : ''}">`;
+      s += `<circle class="w-track" cx="${C}" cy="${C}" r="${radius}"/>`;
+      if (pts.length >= 2) s += `<polygon class="w-shape" points="${pts.join(' ')}"/>`;
+      r.steps.forEach((on, step) => {
+        const [x, y] = point(radius, step, n);
+        s += `<circle class="w-dot ${on ? 'on' : ''}" data-dot="${i}:${step}" cx="${x}" cy="${y}" r="${on ? 8 : 5}"/>`;
+      });
+      s += '</g>';
+    });
+    return s + `<line class="w-hand" x1="${C}" y1="${C}" x2="${C}" y2="${C - OUTER - 14}" hidden/></svg>`;
+  }
+
+  globalThis.Diagrams = { guitar, piano, pianoRange, fretboard, wheel };
 })();

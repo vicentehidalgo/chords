@@ -316,6 +316,50 @@ main { padding: 12px 20px 16px; }
 .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); z-index: 3; pointer-events: none; }
 .playhead[hidden] { display: none; }
 
+/* Percusión */
+.tab-drums { flex-direction: row; gap: 12px; }
+.wheel-panel { flex: 0 1 auto; aspect-ratio: 1; height: 100%; max-width: 54%; padding: 8px; display: flex; align-items: center; justify-content: center; }
+.dg-wheel { display: block; width: 100%; height: 100%; }
+.rings-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.rings-panel .panel-head { margin-bottom: 0; }
+.fam-low { --ring: var(--fn-d); }
+.fam-mid { --ring: var(--fn-s); }
+.fam-metal { --ring: var(--fn-t); }
+.fam-wood { --ring: var(--fn-m); }
+.w-beat { stroke: var(--line); stroke-dasharray: 2 5; }
+.w-num { fill: var(--ink-2); font: 11px var(--sans); }
+.w-track { fill: none; stroke: var(--line); }
+.w-shape { fill: var(--ring); fill-opacity: .09; stroke: var(--ring); stroke-opacity: .55; stroke-width: 1.3; stroke-linejoin: round; }
+.w-dot { fill: var(--surface); stroke: var(--line); stroke-width: 1.2; cursor: pointer; }
+.w-dot:hover { stroke: var(--ring); }
+.w-dot.on { fill: var(--ring); stroke: none; }
+.w-dot.flash { fill: var(--ink); stroke: var(--ring); stroke-width: 5; }
+.w-ring.is-muted { opacity: .3; }
+.w-hand { stroke: var(--accent); stroke-width: 2; pointer-events: none; }
+
+.ring-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.ring-row {
+  display: grid; grid-template-columns: 11px minmax(120px, 150px) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "dot inst pasos golpes" ". gate acts acts";
+  gap: 4px 10px; align-items: center; padding: 6px 8px; background: var(--paper); border-radius: 7px;
+}
+.swatch { grid-area: dot; }
+.ring-inst { grid-area: inst; }
+.ring-n { grid-area: pasos; }
+.ring-k { grid-area: golpes; }
+.ring-gate { grid-area: gate; }
+.ring-acts { grid-area: acts; flex-wrap: nowrap; }
+.ring-row.is-muted { opacity: .55; }
+.swatch { width: 11px; height: 11px; border-radius: 50%; background: var(--ring); }
+.ring-row select { min-width: 0; width: 100%; padding: 3px 5px; font-size: 14px; }
+.ring-row button { padding: 2px 7px; font-size: 13px; }
+.ring-num { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); min-width: 0; }
+.ring-num input { flex: 1; min-width: 0; accent-color: var(--ring); }
+.ring-num b { min-width: 16px; text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+.necklace { font: italic 13.5px/1.15 var(--serif); color: var(--ink-2); min-width: 0; margin-left: 4px; }
+.drum-presets { display: flex; flex-wrap: wrap; gap: 5px; }
+.drum-presets button { padding: 4px 9px; font: 500 14px var(--serif); background: var(--paper); }
+
 /* Campo armónico y progresiones */
 .fieldchips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .fc { display: inline-flex; flex-direction: column; align-items: center; gap: 2px; min-width: 62px; border-bottom: 3px solid var(--fn); background: var(--paper); }
@@ -345,6 +389,9 @@ main { padding: 12px 20px 16px; }
 
 @media (max-width: 960px) {
   .work { grid-template-columns: minmax(0, 1fr); }
+  .tab-drums { flex-direction: column; }
+  .wheel-panel { height: auto; width: 100%; max-width: none; }
+  .ring-list { overflow: visible; }
 }
 @media (max-width: 600px) {
   .top, .tabbar { padding-left: 16px; padding-right: 16px; }
@@ -352,4 +399,8 @@ main { padding: 12px 20px 16px; }
   select.wide { min-width: 0; flex: 1; }
   .sgs { grid-template-columns: minmax(0, 1fr); }
   .tabs kbd { display: none; }
+  .ring-row {
+    grid-template-columns: 11px minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: "dot inst gate" ". pasos golpes" ". acts acts";
+  }
 }
