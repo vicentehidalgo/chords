@@ -9,6 +9,8 @@ globalThis.performance = globalThis.performance || { now: () => clock };
 var clock = 1000;
 load('js/midi.js');
 load('js/drums.js');
+load('js/spanish.js');
+load('js/voice.js');
 
 const { makeKey, harmonicField, outsideChords, chordText, noteName, makeChord, note } = Theory;
 let failed = 0;
@@ -259,6 +261,64 @@ eq(missing, 0, 'cobertura de voicings');
   Midi.panic();
   eq(sent.length, 32, 'pánico en los 16 canales');
   Midi.attach(null);
+}
+
+
+// Letra en español → sílabas
+{
+  const sy = (t, o) => Spanish.syllables(t, o).map((s) => s.text);
+  const ipa = (t, o) => Spanish.syllables(t, o).map((s) => s.onset.join('') + s.nucleus + s.coda.join(''));
+  eq(sy('Cielito lindo'), ['Cie', 'li', 'to', 'lin', 'do'], 'sílabas: cielito lindo');
+  eq(sy('construir'), ['cons', 'truir'], 'ataque tr y coda ns');
+  eq(sy('Atlántico'), ['At', 'lán', 'ti', 'co'], 'tl se separa');
+  eq(sy('maíz poeta'), ['ma', 'íz', 'po', 'e', 'ta'], 'hiatos: tilde y vocales fuertes');
+  eq(sy('aire cuando'), ['ai', 're', 'cuan', 'do'], 'diptongos');
+  eq(sy('pingüino guerra'), ['pin', 'güi', 'no', 'gue', 'rra'], 'gü y gu');
+  eq(sy('ahora'), ['a', 'ho', 'ra'], 'h muda');
+  eq(ipa('cielo'), ['θje', 'lo'], 'ce/ci con θ en España');
+  eq(ipa('cielo', { seseo: true }), ['sje', 'lo'], 'seseo');
+  eq(ipa('rosa pero honra'), ['ro', 'sa', 'pe', 'ɾo', 'on', 'ra'], 'r fuerte y suave');
+  eq(ipa('rey hoy'), ['rej', 'oj'], 'y final es semivocal');
+  eq(ipa('yo llamo'), ['ʝo', 'ʝa', 'mo'], 'y y ll ante vocal');
+  eq(ipa('un beso'), ['um', 'be', 'so'], 'n ante b suena m; b tras nasal no se suaviza');
+  eq(ipa('la boda'), ['la', 'βo', 'ða'], 'b y d entre vocales se suavizan');
+  eq(ipa('un gato'), ['uŋ', 'ga', 'to'], 'n velar ante g');
+  eq(ipa('quiero jugar'), ['kje', 'ɾo', 'xu', 'ɣaɾ'], 'qu, j y g suave');
+  eq(ipa('el dedo'), ['el', 'de', 'ðo'], 'd tras l no se suaviza');
+  eq(sy('de_amor'), ['de‿a', 'mor'], 'sinalefa con _');
+  eq(ipa('de_amor'), ['dja', 'moɾ'], 'sinalefa: la e se vuelve semivocal');
+  const mel = Spanish.syllables('sol - mar');
+  eq(mel.map((s) => [s.text, s.nucleus, s.coda.join(''), !!s.melisma]), [['sol', 'o', '', false], ['–', 'o', 'l', true], ['mar', 'a', 'ɾ', false]], 'melisma: la coda pasa a la última nota');
+  eq(Spanish.syllables('hola, mundo').map((s) => s.phraseEnd), [false, true, false, false], 'la coma marca respiración');
+  eq(ipa('hola, boda'), ['o', 'la', 'bo', 'ða'], 'tras respirar la b es oclusiva');
+  const c = Spanish.toChimera(Spanish.syllables('pan')[0]);
+  eq(c, { text: 'pan', onset: [{ ipa: 'p' }], nucleus: { ipa: 'a' }, coda: [{ ipa: 'n' }], wordEnd: true, phraseEnd: false }, 'formato CHIMERA');
+}
+
+// Voz: notas, reparto de la letra y petición al motor
+{
+  const prog = [{ mel: [0, null, 2, null, null, null, null, null] }, { mel: [null, null, 4, null, null, null, null, 5] }];
+  const notes = Voice.notesOf(prog);
+  eq(notes.map((n) => [n.g, n.len]), [[0, 2], [2, 6], [10, 5], [15, 1]], 'notas: duran hasta la siguiente o el final del compás');
+  notes.forEach((n) => { n.midi = 60 + n.off; });
+  const sylls = Spanish.syllables('la lu na');
+  const al = Voice.align(notes, sylls);
+  eq([al.pairs.map((p) => p.syl && p.syl.text), al.extraNotes, al.extraSyllables.length], [['la', 'lu', 'na', null], 1, 0], 'reparto: sobra una nota');
+  eq(Voice.align(notes.slice(0, 2), sylls).extraSyllables.map((s) => s.text), ['na'], 'reparto: sobra una sílaba');
+  const req = Voice.request({ pairs: al.pairs, bpm: 120, swing: 50, body: 'male', vibrato: 30, breath: .1, bright: .2 });
+  eq(req.notes.map((n) => [n.midi, n.beats, n.syl ? n.syl.text : null]), [[60, 1, 'la'], [62, 3, 'lu'], [0, 1, null], [64, 2.5, 'na'], [65, .5, null]], 'petición: silencios y pulsos');
+  eq([req.body, req.t0, req.source.vibratoRate], [{ female: 0, child: 0 }, Voice.LEAD, 6], 'petición: cuerpo, margen y vibrato a 3 por pulso');
+  const sw = Voice.request({ pairs: al.pairs, bpm: 120, swing: 67, body: 'female', vibrato: 30, breath: .1, bright: .2 });
+  const beatsSum = sw.notes.reduce((a, n) => a + n.beats, 0);
+  eq([sw.notes[3].beats.toFixed(2), beatsSum.toFixed(2)], ['2.67', '8.00'], 'petición: el swing mueve la corchea pero no alarga la canción');
+  eq(Voice.autoOctave([67, 72, 76], 'male'), -2, 'octava automática: hombre');
+  eq(Voice.autoOctave([60, 67], 'female'), 0, 'octava automática: mujer');
+  eq(Voice.autoOctave([], 'child'), 0, 'octava sin notas');
+  eq([Voice.vibratoRate(90).per, Voice.vibratoRate(60).per], [4, 6], 'vibrato al compás');
+  for (let bpm = 50; bpm <= 180; bpm += 2) {
+    const r = Voice.vibratoRate(bpm).rate;
+    if (r < 4.5 || r > 7.5) eq(r, 'entre 4,5 y 7,5', 'vibrato fuera de rango a ' + bpm);
+  }
 }
 
 print(`${passed} correctas, ${failed} fallidas`);

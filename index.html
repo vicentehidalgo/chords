@@ -34,6 +34,10 @@
         <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab">Percusión</button>
         <button class="tab-mute" id="mute-drums" data-act="toggle-drums"></button>
       </span>
+      <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-voice" data-act="tab" data-v="voice" aria-controls="tab-voice" aria-keyshortcuts="Tab">Voz</button>
+        <button class="tab-mute" id="mute-voice" data-act="toggle-voice"></button>
+      </span>
       <kbd title="Pulsa el tabulador para cambiar de pestaña">⇥</kbd>
     </div>
     <div class="transport" id="transport"></div>
@@ -61,6 +65,11 @@
       <section class="panel wheel-panel" aria-label="Rueda de ritmos" id="wheel"></section>
       <section class="panel rings-panel" aria-label="Anillos" id="rings"></section>
     </div>
+
+    <div class="tab tab-voice" id="tab-voice" role="tabpanel" aria-labelledby="tab-btn-voice">
+      <section class="panel lyrics-panel" aria-label="Letra" id="lyrics"></section>
+      <section class="panel voice-panel" aria-label="Voz" id="voice"></section>
+    </div>
   </main>
 
   <script src="js/theory.js"></script>
@@ -69,6 +78,9 @@
   <script src="js/melody.js"></script>
   <script src="js/drums.js"></script>
   <script src="js/diagrams.js"></script>
+  <script src="js/spanish.js"></script>
+  <script src="js/voice.js"></script>
+  <script src="js/voz-wasm.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/midi.js"></script>
   <script src="js/app.js"></script>

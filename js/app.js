@@ -6,7 +6,7 @@
   const V = globalThis.Voicings;
   const D = globalThis.Diagrams;
   const M = globalThis.Melody;
-  const { Sound, Midi, Drums } = globalThis;
+  const { Sound, Midi, Drums, Voice, Spanish } = globalThis;
   const { mod } = T;
   const $ = (id) => document.getElementById(id);
 
@@ -18,6 +18,8 @@
     sendChords: true, sendMelody: true, sendDrums: true,
     midiChordCh: 1, midiMelodyCh: 2, midiDrumCh: 10, localSound: true,
     rings: [], life: 0, playDrums: true,
+    lyrics: '', voiceBody: 'female', accent: 'es', octave: 'auto',
+    vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true,
     prog: [],
   };
   const state = { ...DEFAULTS };
@@ -35,6 +37,7 @@
   const ui = {
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
     more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
+    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0,
   };
 
   let key;
@@ -44,6 +47,8 @@
 
   function save() {
     try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ }
+    // Cualquier cambio puede afectar a lo que canta la voz: se vuelve a cantar si hace falta.
+    refreshVoice();
   }
 
   function snapshot() {
@@ -216,12 +221,14 @@
       state.bpm = Number(e.target.value);
       e.target.parentElement.firstChild.textContent = state.bpm + ' ppm ';
       save();
+      if (state.tab === 'voice') renderVoice();
     };
     $('c-swing').oninput = (e) => {
       state.swing = Number(e.target.value);
       $('swing-value').textContent = swingLabel();
       updateSwingHint();
       save();
+      if (state.tab === 'voice') renderVoice();
     };
     $('c-comp').onchange = (e) => { state.comp = e.target.value; updateSwingHint(); save(); };
     updateSwingHint();
@@ -755,6 +762,200 @@
     renderMidi();
   };
 
+  // Voz ------------------------------------------------------------------------
+
+  const midiLabel = (m) => pcLabel(mod(m)) + (Math.floor(m / 12) - 1);
+
+  // Qué canta la voz: las notas de la melodía (en la octava de la voz) con la letra repartida.
+  function voicePlan() {
+    const sylls = Spanish.syllables(state.lyrics, { seseo: state.accent === 'latam' });
+    const list = chords.length ? M.rows(key, chords) : [];
+    const notes = Voice.notesOf(state.prog.slice(0, chords.length));
+    notes.forEach((n) => { n.off = M.snap(n.off, list); n.midi = M.midiOf(n.off, key); });
+    const oct = state.octave === 'auto' ? Voice.autoOctave(notes.map((n) => n.midi), state.voiceBody) : Number(state.octave);
+    notes.forEach((n) => { n.midi += 12 * oct; });
+    return { sylls, oct, ...Voice.align(notes, sylls) };
+  }
+
+  function voiceRequest(plan) {
+    if (!plan.pairs.some((p) => p.syl)) return null;
+    return Voice.request({
+      pairs: plan.pairs, bpm: state.bpm, swing: state.swing, body: state.voiceBody,
+      vibrato: state.vibrato, breath: state.breath / 100, bright: state.bright / 100,
+    });
+  }
+
+  function refreshVoice() {
+    clearTimeout(ui.voiceTimer);
+    ui.voiceTimer = setTimeout(singVoice, 450);
+  }
+
+  // Pide al motor que cante lo actual, si no lo tiene ya.
+  function singVoice() {
+    if (!Voice.supported() || !key) return;
+    const req = voiceRequest(voicePlan());
+    const k = req ? JSON.stringify(req) : null;
+    if (k === ui.voice.key) return;
+    const job = { key: k, status: req ? 'rendering' : 'idle', progress: 0 };
+    ui.voice = job;
+    renderVoiceStatus();
+    if (!req) return;
+    Voice.render(req, (p) => {
+      if (ui.voice !== job) return;
+      job.progress = p;
+      renderVoiceStatus();
+    }).then((r) => {
+      if (ui.voice !== job) return;
+      let peak = 0;
+      for (const x of r.samples) peak = Math.max(peak, Math.abs(x));
+      if (peak > 0) { const g = .9 / peak; for (let i = 0; i < r.samples.length; i++) r.samples[i] *= g; }
+      Object.assign(job, { status: 'ready', samples: r.samples, rate: r.sampleRate });
+      renderVoiceStatus();
+    }).catch((e) => {
+      if (ui.voice !== job) return;
+      Object.assign(job, { status: 'error', error: e.message });
+      renderVoiceStatus();
+    });
+  }
+
+  // La toma lista, solo si corresponde a la canción tal como está ahora.
+  function voiceTake() {
+    const v = ui.voice;
+    if (v.status !== 'ready' || !key) return null;
+    const req = voiceRequest(voicePlan());
+    return req && JSON.stringify(req) === v.key ? v : null;
+  }
+
+  const voiceLevel = () => (state.playVoice ? .55 * state.voiceVol / 100 : 0);
+
+  function startVoice(p, atMs) {
+    const take = voiceTake();
+    if (!take) return;
+    const node = Sound.buffer(take.samples, take.rate, (atMs - Voice.LEAD * 1000 - performance.now()) / 1000, voiceLevel());
+    if (node) p.voices.push(node);
+  }
+
+  function voiceGain() {
+    if (ui.playing) ui.playing.voices.forEach((v) => v.gain(voiceLevel()));
+  }
+
+  function markVoiceNote(i, s) {
+    document.querySelectorAll('.va-note.is-now').forEach((el) => el.classList.remove('is-now'));
+    const el = document.querySelector(`.va-note[data-vn="${i}:${s}"]`);
+    if (el) el.classList.add('is-now');
+  }
+
+  function renderVoiceStatus() {
+    const el = $('voice-status');
+    if (!el) return;
+    const v = ui.voice;
+    if (!Voice.supported()) { el.textContent = 'Este navegador no puede ejecutar el motor de voz'; el.className = 'voice-status is-error'; return; }
+    const text = {
+      idle: 'Escribe la letra para oírla',
+      rendering: `Cantando… ${Math.round(v.progress * 100)}%`,
+      ready: 'Lista: pulsa Reproducir',
+      error: 'No se pudo cantar: ' + v.error,
+    }[v.status];
+    el.textContent = text;
+    el.className = 'voice-status is-' + v.status;
+    el.style.setProperty('--p', v.status === 'rendering' ? v.progress : v.status === 'ready' ? 1 : 0);
+  }
+
+  function renderLyrics() {
+    const el = $('lyrics');
+    if (!el.querySelector('textarea')) {
+      el.innerHTML = `
+        <div class="panel-head">
+          <h2>Letra</h2>
+          <span class="voice-status" id="voice-status" role="status"></span>
+        </div>
+        <textarea id="c-lyrics" rows="4" spellcheck="true" lang="es" placeholder="Escribe aquí la letra. Por ejemplo:&#10;Cielito lindo, los ojos negros"></textarea>
+        <p class="muted help">Una sílaba por nota de la melodía. «-» alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba (de_amor) y la puntuación o el salto de línea marcan dónde respirar.</p>
+        <div class="voice-align" id="voice-align"></div>`;
+      const ta = $('c-lyrics');
+      ta.oninput = () => { state.lyrics = ta.value; save(); renderAlign(); };
+    }
+    const ta = $('c-lyrics');
+    if (ta.value !== state.lyrics) ta.value = state.lyrics;
+    renderAlign();
+    renderVoiceStatus();
+  }
+
+  function renderAlign() {
+    const el = $('voice-align');
+    if (!el) return;
+    if (!chords.length) {
+      el.innerHTML = '<p class="muted">La voz canta la melodía de la pestaña Melodía. Crea primero una progresión.</p>';
+      return;
+    }
+    const plan = voicePlan();
+    if (!plan.pairs.length) {
+      el.innerHTML = `<div class="empty"><p>La voz canta las notas de la pestaña Melodía, y aún está vacía.</p>
+        <div class="chips"><button class="primary" data-act="mel-generate">Proponer melodía</button></div></div>`;
+      return;
+    }
+    const byBar = chords.map(() => []);
+    plan.pairs.forEach((p) => byBar[p.i].push(p));
+    const bars = chords.map((c, i) => `<div class="va-bar fn-${c.fn}">
+        <span class="va-chord">${nameHTML(c)}</span>
+        <div class="va-notes">${byBar[i].map((p) => `<span class="va-note ${p.syl ? '' : 'is-empty'}" data-vn="${p.i}:${p.s}" style="flex-grow:${p.len}">
+          <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}</small></span>`).join('') || '<span class="va-rest">silencio</span>'}</div>
+      </div>`).join('');
+    let foot = '';
+    if (plan.extraSyllables.length) {
+      foot = `<p class="va-warn">Sobran ${plan.extraSyllables.length} sílabas sin nota: «${plan.extraSyllables.map((s) => s.text).join(' ')}». Añade notas en Melodía o usa «_» para unir palabras.</p>`;
+    } else if (plan.extraNotes && plan.sylls.length) {
+      foot = `<p class="va-warn is-soft">${plan.extraNotes} notas sin letra: la voz calla en ellas.</p>`;
+    }
+    el.innerHTML = `<div class="va-bars">${bars}</div>${foot}`;
+  }
+
+  function renderVoice() {
+    const el = $('voice');
+    const plan = voicePlan();
+    const midis = plan.pairs.filter((p) => p.syl).map((p) => p.midi);
+    const range = midis.length ? `Canta de ${midiLabel(Math.min(...midis))} a ${midiLabel(Math.max(...midis))}` : '';
+    const vib = Voice.vibratoRate(state.bpm);
+    const slider = (id, label, min, max, value, unit) => `<label class="vslider"><span>${label}</span>
+      <input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${label}"><output>${value}${unit}</output></label>`;
+    el.innerHTML = `
+      <div class="panel-head"><h2>Voz</h2></div>
+      <div class="vfields">
+        <div class="field"><span>Cuerpo</span>${seg('voice-body', Object.entries(Voice.BODIES).map(([id, b]) => [id, b.name]), state.voiceBody)}</div>
+        <div class="field"><span>Acento</span>${seg('accent', [['es', 'España'], ['latam', 'Latinoamérica']], state.accent)}</div>
+        <div class="field"><span>Octava</span>${seg('octave', [['auto', 'Auto'], ['-1', '−1'], ['0', '0'], ['1', '+1']], state.octave)}
+          <span class="muted">${range}${state.octave === 'auto' && midis.length ? ` (${plan.oct > 0 ? '+' : ''}${plan.oct} oct.)` : ''}</span></div>
+        ${slider('v-vibrato', 'Vibrato', 0, 80, state.vibrato, ' cents')}
+        ${slider('v-breath', 'Aire', 0, 60, state.breath, '%')}
+        ${slider('v-bright', 'Brillo', 0, 60, state.bright, '%')}
+        ${slider('v-vol', 'Volumen', 0, 100, state.voiceVol, '%')}
+      </div>
+      <div class="vauto">
+        <h3>Sigue a la canción</h3>
+        <ul>
+          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la melodía.</li>
+          <li><b>Tempo</b> ${state.bpm} ppm: cada sílaba dura su nota y las consonantes entran antes del pulso.</li>
+          <li><b>Swing</b> ${swingLabel()}: retrasa las corcheas a contratiempo igual que el resto.</li>
+          <li><b>Vibrato</b> a ${vib.rate.toFixed(1).replace('.', ',')} Hz, ${vib.per} ondas por pulso, solo en las notas largas.</li>
+          <li><b>Respira</b> en los silencios y en la puntuación.</li>
+        </ul>
+        <p class="muted">La voz suena en el navegador; no se envía por MIDI. La genera CHIMERA, un modelo físico de garganta y boca.</p>
+      </div>`;
+    const bind = (id, prop, unit, live) => {
+      const input = $(id);
+      input.oninput = () => {
+        state[prop] = Number(input.value);
+        input.nextElementSibling.textContent = input.value + unit;
+        if (live) live(); else save();
+      };
+    };
+    bind('v-vibrato', 'vibrato', ' cents');
+    bind('v-breath', 'breath', '%');
+    bind('v-bright', 'bright', '%');
+    // El volumen no obliga a volver a cantar: se aplica al vuelo.
+    bind('v-vol', 'voiceVol', '%', () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ } voiceGain(); });
+  }
+
   // Coordinación ---------------------------------------------------------------
 
   function render() {
@@ -769,15 +970,18 @@
     renderPresets();
     renderWheel();
     renderRings();
+    renderLyrics();
+    renderVoice();
     applyTab();
   }
 
-  const TABS = ['chords', 'melody', 'drums'];
+  const TABS = ['chords', 'melody', 'drums', 'voice'];
 
   const MUTES = {
     chords: { prop: 'playChords', name: 'progresión' },
     melody: { prop: 'playMelody', name: 'melodía' },
     drums: { prop: 'playDrums', name: 'percusión' },
+    voice: { prop: 'playVoice', name: 'voz' },
   };
   const SPEAKER = '<path fill="currentColor" stroke="none" d="M2 6h3l4-3.5v11L5 10H2z"/>';
   const ICON_ON = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6.3 6.3 0 0 1 0 9"/></svg>`;
@@ -789,10 +993,12 @@
       const btn = $('mute-' + t);
       const off = !state[prop];
       btn.innerHTML = off ? ICON_OFF : ICON_ON;
-      btn.disabled = browserMuted();
+      // La voz no va por MIDI: suena en el navegador aunque el resto no.
+      const blocked = t !== 'voice' && browserMuted();
+      btn.disabled = blocked;
       btn.setAttribute('aria-pressed', String(off));
       btn.setAttribute('aria-label', 'Silenciar ' + name);
-      btn.title = browserMuted() ? 'El sonido del navegador está apagado en el menú MIDI' : 'Silenciar ' + name;
+      btn.title = blocked ? 'El sonido del navegador está apagado en el menú MIDI' : 'Silenciar ' + name;
     });
   }
 
@@ -805,6 +1011,8 @@
 
   function setTab(tab) {
     state.tab = tab;
+    // La voz depende de todo lo demás: al entrar se pone al día.
+    if (tab === 'voice') { renderAlign(); renderVoice(); }
     save();
     applyTab();
   }
@@ -941,6 +1149,10 @@
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMutes(); },
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
+    'toggle-voice'() { state.playVoice = !state.playVoice; save(); renderMutes(); voiceGain(); },
+    'voice-body'(el) { state.voiceBody = el.dataset.v; save(); renderVoice(); renderAlign(); },
+    accent(el) { state.accent = el.dataset.v; save(); renderVoice(); renderAlign(); },
+    octave(el) { state.octave = el.dataset.v; save(); renderVoice(); renderAlign(); },
     'mel-generate'() {
       snapshot();
       ui.seed += 1;
@@ -949,6 +1161,8 @@
       save();
       renderMelody();
       renderStrip();
+      renderAlign();
+      renderVoice();
     },
     'mel-clear'() {
       snapshot();
@@ -957,6 +1171,8 @@
       save();
       renderMelody();
       renderStrip();
+      renderAlign();
+      renderVoice();
     },
   };
 
@@ -1004,6 +1220,7 @@
       const dur = M.spanMs(s, to, state.swing, stepMs) * .95 / 1000;
       if (v) emitChord(v.midis, dur, .15, at, state.playChords);
     }
+    if (s === 0 && i === Math.max(1, chords.length) - 1 && state.loop) p.voiceAt = at + M.STEPS * stepMs;
     const n = melodyAt(p.list, i, s);
     if (n) {
       const dur = M.spanMs(s, s + n.len, state.swing, stepMs) * .92 / 1000;
@@ -1013,6 +1230,7 @@
       if (ui.playing !== p) return;
       if (s === 0) { highlight(i); p.barSeen = performance.now(); }
       movePlayhead(i, s);
+      if (n) markVoiceNote(i, s);
     }, Math.max(0, at - performance.now()));
   }
 
@@ -1022,8 +1240,13 @@
     if (!canPlay()) { stop(); return; }
     const now = performance.now();
     while (p.queue.length && p.queue[0].at < now + LOOKAHEAD_MS) fireDrum(p.queue.shift());
+    // La voz arranca antes del compás: sus consonantes van antes del pulso.
+    if (p.voiceAt && p.voiceAt - Voice.LEAD * 1000 < now + LOOKAHEAD_MS) {
+      startVoice(p, p.voiceAt);
+      p.voiceAt = 0;
+    }
     if (p.endAt) {
-      if (now >= p.endAt) stop();
+      if (now >= p.endAt) stop(true);
       return;
     }
     // El margen se mide con el swing ya aplicado: una corchea retrasada no debe
@@ -1048,14 +1271,20 @@
 
   function play() {
     if (!canPlay()) return;
-    ui.playing = { i: 0, s: 0, next: performance.now() + 40, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0 };
+    // Con voz lista se deja margen para que entren sus primeras consonantes.
+    const lead = voiceTake() ? Voice.LEAD * 1000 : 0;
+    const next = performance.now() + 40 + lead;
+    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next };
     renderTransport();
     animateHand();
   }
 
-  function stop() {
+  // natural: la canción terminó sola; la voz acaba su última sílaba.
+  function stop(natural = false) {
     if (!ui.playing) return;
+    if (!natural) ui.playing.voices.forEach((v) => v.stop());
     ui.playing = null;
+    markVoiceNote(-1, -1);
     Midi.silence();
     const head = document.querySelector('.playhead');
     if (head) head.hidden = true;
@@ -1130,5 +1359,6 @@
   startTicker(() => { schedule(); Midi.flush(); });
   recompute();
   render();
+  refreshVoice();
   if (state.midiOn && Midi.supported()) connectMidi();
 })();

@@ -119,7 +119,7 @@ select.wide, .field.wide select { min-width: 200px; }
 
 /* Pestañas y transporte */
 .tabbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 8px 16px; flex-wrap: wrap; padding: 0 20px; border-bottom: 1px solid var(--line); }
-.tabs { display: flex; gap: 2px; align-items: center; }
+.tabs { display: flex; flex-wrap: wrap; gap: 2px; align-items: center; min-width: 0; }
 .tabs button { background: none; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 7px 14px 6px; font: 600 18px/1.2 var(--serif); color: var(--ink-2); }
 .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
 .tab-item { display: inline-flex; align-items: center; }
@@ -403,8 +403,64 @@ main { padding: 12px 20px 16px; }
   select.wide { min-width: 0; flex: 1; }
   .sgs { grid-template-columns: minmax(0, 1fr); }
   .tabs kbd { display: none; }
+  .tabs button[role="tab"] { font-size: 16px; padding: 6px 8px 5px; }
+  .tabs .tab-mute { margin-left: -4px; margin-right: 2px; }
   .ring-row {
     grid-template-columns: 11px minmax(0, 1fr) minmax(0, 1fr);
     grid-template-areas: "dot inst gate" ". pasos golpes" ". acts acts";
   }
+}
+
+/* Voz */
+.tab-voice { flex-direction: row; gap: 12px; }
+.lyrics-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.lyrics-panel .panel-head { margin-bottom: 0; }
+.lyrics-panel textarea {
+  width: 100%; resize: vertical; min-height: 84px; padding: 10px 12px;
+  font: 18px/1.45 var(--serif); color: var(--ink); background: var(--paper);
+  border: 1px solid var(--line); border-radius: 8px;
+}
+.lyrics-panel textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lyrics-panel .help { margin: 0; }
+.voice-status {
+  --p: 0; position: relative; overflow: hidden; font: 13px var(--sans); color: var(--ink-2);
+  padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; font-variant-numeric: tabular-nums;
+}
+.voice-status::before { content: ""; position: absolute; inset: 0; width: calc(var(--p) * 100%); background: var(--accent); opacity: .18; transition: width .2s; }
+.voice-status.is-ready { color: var(--ink); border-color: var(--fn-t); }
+.voice-status.is-ready::before { background: var(--fn-t); }
+.voice-status.is-error { color: var(--accent); border-color: var(--accent); }
+.voice-align { flex: 1; min-height: 0; overflow: auto; }
+.va-bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.va-bar { border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 8px; padding: 6px 8px 8px; background: var(--paper); min-width: 0; }
+.va-bar.fn-T { border-top-color: var(--fn-t); }
+.va-bar.fn-S { border-top-color: var(--fn-s); }
+.va-bar.fn-D { border-top-color: var(--fn-d); }
+.va-bar.fn-M { border-top-color: var(--fn-m); }
+.va-chord .cname { font-size: 15px; }
+.va-notes { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
+.va-note { flex: 1 0 auto; min-width: 34px; display: flex; flex-direction: column; align-items: center; padding: 3px 2px; border-radius: 5px; background: var(--surface); border: 1px solid var(--line); transition: background .1s; }
+.va-note b { font: 600 15px var(--serif); white-space: nowrap; }
+.va-note small { font: 10.5px var(--sans); color: var(--ink-2); }
+.va-note.is-empty b { color: var(--ink-2); font-weight: 400; }
+.va-note.is-now { background: var(--accent); border-color: var(--accent); }
+.va-note.is-now b, .va-note.is-now small { color: var(--on-accent); }
+.va-rest { font-size: 12px; color: var(--ink-2); padding: 6px 0; }
+.va-warn { margin: 8px 0 0; font-size: 13px; color: var(--accent); }
+.va-warn.is-soft { color: var(--ink-2); }
+.voice-panel { flex: 0 0 330px; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.voice-panel .panel-head { margin-bottom: 0; }
+.vfields { display: flex; flex-direction: column; gap: 10px; }
+.vfields .field .muted { font-size: 12.5px; }
+.vslider { display: grid; grid-template-columns: 72px 1fr 64px; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+.vslider input { width: 100%; accent-color: var(--accent); }
+.vslider output { font-variant-numeric: tabular-nums; text-align: right; }
+.vauto { border-top: 1px solid var(--line); padding-top: 10px; }
+.vauto h3 { margin: 0 0 6px; }
+.vauto ul { margin: 0 0 8px; padding-left: 16px; font-size: 13px; line-height: 1.45; }
+.vauto li b { font-weight: 600; }
+.vauto .muted { font-size: 12.5px; }
+@media (max-width: 960px) {
+  .tab-voice { flex-direction: column; }
+  .voice-panel { flex: none; }
 }

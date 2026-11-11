@@ -119,5 +119,30 @@
     KIT[name](ctx.currentTime + .01 + Math.max(0, delay), .75 * velocity / 127);
   }
 
-  globalThis.Sound = { chord, note, drum };
+  // Muestras ya renderizadas (la voz). Devuelve con qué pararlas o cambiar su volumen.
+  const buffers = new WeakMap();
+  function buffer(samples, rate, delay = 0, gain = 1) {
+    if (!ensure()) return null;
+    let buf = buffers.get(samples);
+    if (!buf) {
+      buf = ctx.createBuffer(1, samples.length, rate);
+      buf.copyToChannel(samples, 0);
+      buffers.set(samples, buf);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(master);
+    // Si el momento ya pasó, empieza ahora desde donde debería ir.
+    const at = ctx.currentTime + .01 + delay;
+    if (delay >= 0) src.start(at);
+    else src.start(ctx.currentTime + .01, Math.min(-delay, buf.duration));
+    return {
+      stop() { try { src.stop(); } catch (e) { /* ya parado */ } },
+      gain(v) { g.gain.setTargetAtTime(v, ctx.currentTime, .03); },
+    };
+  }
+
+  globalThis.Sound = { chord, note, drum, buffer };
 })();

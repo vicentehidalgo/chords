@@ -1,0 +1,24 @@
+[package]
+name = "enlace-voz"
+description = "Voz cantada de Enlace: planifica y renderiza una melodía con el motor CHIMERA"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Versión fija del motor: compilar dos veces da el mismo .wasm.
+chimera = { git = "https://github.com/jamesondh/chimera-vocal-synth", rev = "1d3ea496cad0fbe3e73361515aec187e868fbd47" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "fat"
+panic = "abort"
+debug = false
