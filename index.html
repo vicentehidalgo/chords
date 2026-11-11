@@ -11,75 +11,77 @@
     <h1>Enlace</h1>
     <div class="controls" id="controls"></div>
     <details class="menu">
-      <summary>Ajustes</summary>
+      <summary data-en="Settings">Ajustes</summary>
       <div class="menu-panel" id="options"></div>
     </details>
     <details class="menu">
       <summary>MIDI <span class="muted" id="midi-status"></span></summary>
       <div class="menu-panel" id="midi"></div>
     </details>
+    <div class="lang" id="lang" role="group" aria-label="Idioma / Language"></div>
   </header>
 
   <nav class="tabbar">
-    <div role="tablist" aria-label="Secciones" class="tabs">
+    <div role="tablist" aria-label="Secciones" data-en-label="Sections" class="tabs">
       <span class="tab-item" role="presentation">
-        <button role="tab" id="tab-btn-chords" data-act="tab" data-v="chords" aria-controls="tab-chords" aria-keyshortcuts="Tab">Progresión</button>
+        <button role="tab" id="tab-btn-chords" data-act="tab" data-v="chords" aria-controls="tab-chords" aria-keyshortcuts="Tab" data-en="Progression">Progresión</button>
         <button class="tab-mute" id="mute-chords" data-act="toggle-chords"></button>
       </span>
       <span class="tab-item" role="presentation">
-        <button role="tab" id="tab-btn-melody" data-act="tab" data-v="melody" aria-controls="tab-melody" aria-keyshortcuts="Tab">Melodía</button>
+        <button role="tab" id="tab-btn-melody" data-act="tab" data-v="melody" aria-controls="tab-melody" aria-keyshortcuts="Tab" data-en="Melody">Melodía</button>
         <button class="tab-mute" id="mute-melody" data-act="toggle-melody"></button>
       </span>
       <span class="tab-item" role="presentation">
-        <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab">Percusión</button>
+        <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab" data-en="Drums">Percusión</button>
         <button class="tab-mute" id="mute-drums" data-act="toggle-drums"></button>
       </span>
       <span class="tab-item" role="presentation">
-        <button role="tab" id="tab-btn-letra" data-act="tab" data-v="letra" aria-controls="tab-letra" aria-keyshortcuts="Tab">Letra</button>
+        <button role="tab" id="tab-btn-letra" data-act="tab" data-v="letra" aria-controls="tab-letra" aria-keyshortcuts="Tab" data-en="Lyrics">Letra</button>
       </span>
       <span class="tab-item" role="presentation">
-        <button role="tab" id="tab-btn-voice" data-act="tab" data-v="voice" aria-controls="tab-voice" aria-keyshortcuts="Tab">Voz</button>
+        <button role="tab" id="tab-btn-voice" data-act="tab" data-v="voice" aria-controls="tab-voice" aria-keyshortcuts="Tab" data-en="Voice">Voz</button>
         <button class="tab-mute" id="mute-voice" data-act="toggle-voice"></button>
       </span>
-      <kbd title="Pulsa el tabulador para cambiar de pestaña">⇥</kbd>
+      <kbd title="Pulsa el tabulador para cambiar de pestaña" data-en-title="Press Tab to switch tabs">⇥</kbd>
     </div>
     <div class="transport" id="transport"></div>
   </nav>
 
   <main>
     <div class="tab tab-chords" id="tab-chords" role="tabpanel" aria-labelledby="tab-btn-chords">
-      <section class="strip" aria-label="Progresión" id="strip"></section>
+      <section class="strip" aria-label="Progresión" data-en-label="Progression" id="strip"></section>
       <div class="work">
-        <section class="panel next" aria-label="Siguiente acorde" id="next"></section>
+        <section class="panel next" aria-label="Siguiente acorde" data-en-label="Next chord" id="next"></section>
         <div class="side">
-          <section class="panel" aria-label="Acorde seleccionado" id="detail"></section>
-          <section class="panel" aria-label="Acordes de la escala" id="field"></section>
-          <section class="panel presets-panel" aria-label="Progresiones conocidas" id="presets"></section>
+          <section class="panel" aria-label="Acorde seleccionado" data-en-label="Selected chord" id="detail"></section>
+          <section class="panel" aria-label="Acordes de la escala" data-en-label="Chords in the scale" id="field"></section>
+          <section class="panel presets-panel" aria-label="Progresiones conocidas" data-en-label="Well-known progressions" id="presets"></section>
         </div>
       </div>
     </div>
 
     <div class="tab tab-melody" id="tab-melody" role="tabpanel" aria-labelledby="tab-btn-melody">
-      <section class="panel melody" aria-label="Melodía" id="melody"></section>
-      <section class="panel" aria-label="Notas sobre el acorde" id="melody-map"></section>
+      <section class="panel melody" aria-label="Melodía" data-en-label="Melody" id="melody"></section>
+      <section class="panel" aria-label="Notas sobre el acorde" data-en-label="Notes over the chord" id="melody-map"></section>
     </div>
 
     <div class="tab tab-drums" id="tab-drums" role="tabpanel" aria-labelledby="tab-btn-drums">
-      <section class="panel wheel-panel" aria-label="Rueda de ritmos" id="wheel"></section>
-      <section class="panel rings-panel" aria-label="Anillos" id="rings"></section>
+      <section class="panel wheel-panel" aria-label="Rueda de ritmos" data-en-label="Rhythm wheel" id="wheel"></section>
+      <section class="panel rings-panel" aria-label="Anillos" data-en-label="Rings" id="rings"></section>
     </div>
 
     <div class="tab tab-letra" id="tab-letra" role="tabpanel" aria-labelledby="tab-btn-letra">
-      <section class="panel letra-head" aria-label="Estrofas y letra" id="letra-head"></section>
-      <section class="panel melody letra-grid" aria-label="Melodía de la voz" id="letra-grid"></section>
+      <section class="panel letra-head" aria-label="Estrofas y letra" data-en-label="Verses and lyrics" id="letra-head"></section>
+      <section class="panel melody letra-grid" aria-label="Melodía de la voz" data-en-label="Voice melody" id="letra-grid"></section>
     </div>
 
     <div class="tab tab-voice" id="tab-voice" role="tabpanel" aria-labelledby="tab-btn-voice">
-      <section class="panel song-panel" aria-label="Canción" id="song"></section>
-      <section class="panel voice-panel" aria-label="Voz" id="voice"></section>
+      <section class="panel song-panel" aria-label="Canción" data-en-label="Song" id="song"></section>
+      <section class="panel voice-panel" aria-label="Voz" data-en-label="Voice" id="voice"></section>
     </div>
   </main>
 
+  <script src="js/i18n.js"></script>
   <script src="js/theory.js"></script>
   <script src="js/suggest.js"></script>
   <script src="js/voicings.js"></script>

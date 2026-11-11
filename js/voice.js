@@ -135,7 +135,8 @@
         if (p.g > cursor) notes.push({ midi: 0, beats: beats(cursor, p.g) });
         const midi = midiOf(p);
         const n = { midi: midi || 0, beats: beats(p.g, p.g + p.len) };
-        if (p.syl && midi) n.syl = globalThis.Spanish.toChimera(p.syl);
+        // Las sílabas del español se guardan con el IPA en texto; las del inglés ya vienen del motor.
+        if (p.syl && midi) n.syl = typeof p.syl.nucleus === 'string' ? globalThis.Spanish.toChimera(p.syl) : p.syl;
         notes.push(n);
         cursor = p.g + p.len;
       }
@@ -243,6 +244,62 @@
     return h;
   }
 
+  // Inglés: el motor convierte la letra en sílabas con el diccionario CMU. Corre en
+  // el hilo principal (la interfaz cuenta las sílabas al escribir); el diccionario
+  // se descomprime una vez, al pasar al inglés.
+  let main = null;
+  let dict = null; // promesa de la carga
+
+  function mainEngine() {
+    if (!main) {
+      const raw = atob(globalThis.VOZ_WASM);
+      const wasm = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) wasm[i] = raw.charCodeAt(i);
+      main = new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;
+    }
+    return main;
+  }
+
+  function writeInput(x, bytes) {
+    const ip = x.voz_input(bytes.length);
+    new Uint8Array(x.memory.buffer, ip, bytes.length).set(bytes);
+  }
+
+  function english(text) {
+    if (!supported() || !String(text).trim()) return [];
+    const x = mainEngine();
+    writeInput(x, new TextEncoder().encode(text));
+    const n = x.voz_english();
+    const p = x.voz_result_ptr();
+    return JSON.parse(new TextDecoder().decode(new Uint8Array(x.memory.buffer, p, n).slice()));
+  }
+
+  // Sin el diccionario se usan reglas de letra a sonido, peores pero inmediatas.
+  function loadDict() {
+    if (dict) return dict;
+    dict = (async () => {
+      // El diccionario (1,2 MB) solo se trae si hace falta.
+      if (typeof globalThis.CMUDICT_GZ !== 'string') {
+        await new Promise((resolve, reject) => {
+          const tag = document.createElement('script');
+          tag.src = 'js/cmudict.js';
+          tag.onload = resolve;
+          tag.onerror = () => reject(new Error('sin diccionario'));
+          document.head.appendChild(tag);
+        });
+      }
+      const raw = atob(globalThis.CMUDICT_GZ);
+      const gz = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) gz[i] = raw.charCodeAt(i);
+      const stream = new Blob([gz]).stream().pipeThrough(new DecompressionStream('gzip'));
+      const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+      const x = mainEngine();
+      writeInput(x, bytes);
+      x.voz_dict_load();
+    })();
+    return dict;
+  }
+
   const supported = () => typeof WebAssembly === 'object' && typeof globalThis.VOZ_WASM === 'string';
 
   // Devuelve una promesa con las muestras. Una petición nueva deja sin efecto la anterior.
@@ -257,5 +314,5 @@
     });
   }
 
-  globalThis.Voice = { RATE, LEAD, BODIES, DYNAMICS, HARMONY, pressureFor, harmonize, notesOf, rhythm, autoOctave, vibratoRate, align, request, render, supported };
+  globalThis.Voice = { RATE, LEAD, BODIES, DYNAMICS, HARMONY, pressureFor, harmonize, notesOf, rhythm, english, loadDict, autoOctave, vibratoRate, align, request, render, supported };
 })();

@@ -487,3 +487,7 @@ button.link.inline { padding: 0; font: inherit; }
 .letra-head .row .muted { font-size: 13px; }
 .cell.harm::before { content: ""; position: absolute; inset: 3px 2px; border: 1.5px dashed var(--ink-2); border-radius: 4px; opacity: .7; }
 .cell.harm.harm-held::before { border-left: 0; border-right: 0; border-radius: 0; inset: 3px 0; opacity: .35; }
+.lang { display: inline-flex; margin-left: auto; align-self: center; }
+.lang button { padding: 3px 7px; font: 600 11.5px var(--sans); letter-spacing: .04em; border-radius: 0; margin-left: -1px; }
+.lang button:first-child { border-radius: 5px 0 0 5px; margin-left: 0; }
+.lang button:last-child { border-radius: 0 5px 5px 0; }

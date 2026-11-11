@@ -1,6 +1,7 @@
 // Pruebas del motor (sin navegador). Con JavaScriptCore de macOS:
 //   /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc tests/run.js
 // Ejecutar desde la raíz del proyecto.
+load('js/i18n.js');
 load('js/theory.js');
 load('js/suggest.js');
 load('js/voicings.js');
@@ -362,6 +363,40 @@ eq(missing, 0, 'cobertura de voicings');
     const r = Voice.vibratoRate(bpm).rate;
     if (r < 4.5 || r > 7.5) eq(r, 'entre 4,5 y 7,5', 'vibrato fuera de rango a ' + bpm);
   }
+}
+
+// Traducción al inglés: ningún texto de los datos se queda en español
+{
+  I18n.set('en');
+  const left = new Set();
+  const check = (str) => { if (str && !I18n.known(str) && I18n.tr(str) === str && /[a-záéíóúñ]/i.test(str) && !/^[IViv♭#b0-9 –()°+ømajsudg]+$/.test(str)) left.add(str); };
+  const spanishOnly = (str) => /[áéíóúñ]|\b(de|del|la|el|con|sin|por|una?|sube|baja)\b/i.test(str);
+  Theory.SCALES.forEach((sc) => { check(sc.name); check(sc.group); });
+  Theory.QUALITIES.forEach((q) => check(q.label));
+  Object.values(Melody.COMP).forEach((c) => check(c.name));
+  Object.values(Drums.INSTRUMENTS).forEach((x) => check(x.name));
+  Object.values(Drums.GATES).forEach(check);
+  Drums.PRESETS.forEach((x) => check(x.name));
+  for (let k = 1; k <= 12; k++) for (let n = 2; n <= 24; n++) check(Drums.necklaceName(Drums.euclid(k, n)));
+  // Progresiones y razones de las sugerencias en todas las escalas y niveles
+  for (const sc of Theory.SCALES) {
+    for (const pc of [0, 3, 7]) {
+      const k = makeKey(pc, sc.id);
+      Suggest.presetsFor(k).forEach((x) => check(x.name));
+      const cands = [...harmonicField(k, 2), ...outsideChords(k, 2)];
+      cands.forEach((c) => check(Suggest.originLabel(c)));
+      const field0 = harmonicField(k, 1);
+      for (const h of [[], [field0[0]], [field0[0], field0[3 % field0.length]], [field0[4 % field0.length]]]) {
+        Suggest.suggest({ key: k, candidates: cands, history: h, next: null, notation: 'latin' }).forEach((r) => r.reasons.forEach((x) => check(x.text)));
+      }
+    }
+  }
+  const missing = [...left].filter(spanishOnly);
+  eq(missing, [], 'todo texto de los datos tiene traducción al inglés');
+  eq(I18n.tr('Prestado del eólico'), 'Borrowed from Aeolian', 'traducción con nombre de escala');
+  eq(I18n.scaleInText('Dórico'), 'Dorian', 'escala dentro de una frase en inglés');
+  I18n.set('es');
+  eq([I18n.tr('Dórico'), I18n.scaleInText('Dórico')], ['Dórico', 'dórico'], 'en español no se toca');
 }
 
 print(`${passed} correctas, ${failed} fallidas`);

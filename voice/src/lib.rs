@@ -12,6 +12,8 @@
 use chimera::anatomy::human::BodyMix;
 use chimera::math::midi_to_hz;
 use chimera::phonetics::Syllable;
+use chimera::phonetics::english::EnglishG2P;
+use chimera::phonetics::syllables::lyrics_to_syllables;
 use chimera::phonetics::sing::{SongOptions, SungNote, plan_song};
 use chimera::voice::human_voice::{HumanVoice, SourcePatch, oversample_for};
 use serde::Deserialize;
@@ -73,6 +75,9 @@ struct State {
     fs: f64,
     total: usize,
     done: usize,
+    /// Pronunciación inglesa: diccionario CMU (o reglas de letra a sonido sin él).
+    g2p: Option<EnglishG2P>,
+    result: String,
 }
 
 thread_local! {
@@ -255,4 +260,33 @@ pub extern "C" fn voz_error_ptr() -> *const u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn voz_error_len() -> usize {
     STATE.with_borrow(|s| s.error.len())
+}
+
+// Inglés ----------------------------------------------------------------------
+
+/// Carga el diccionario de pronunciación (texto de CMUdict) escrito con `voz_input`.
+#[unsafe(no_mangle)]
+pub extern "C" fn voz_dict_load() {
+    STATE.with_borrow_mut(|s| {
+        let text = String::from_utf8_lossy(&s.input).into_owned();
+        s.g2p.get_or_insert_with(EnglishG2P::new).load_dict(&text);
+        s.input = Vec::new();
+    })
+}
+
+/// Letra inglesa (escrita con `voz_input`) → sílabas en JSON, en `voz_result_*`.
+#[unsafe(no_mangle)]
+pub extern "C" fn voz_english() -> usize {
+    STATE.with_borrow_mut(|s| {
+        let text = String::from_utf8_lossy(&s.input).into_owned();
+        let g2p = s.g2p.get_or_insert_with(EnglishG2P::new);
+        let syl = lyrics_to_syllables(&text, g2p);
+        s.result = serde_json::to_string(&syl).unwrap_or_else(|_| "[]".into());
+        s.result.len()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn voz_result_ptr() -> *const u8 {
+    STATE.with_borrow(|s| s.result.as_ptr())
 }

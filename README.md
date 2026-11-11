@@ -2,6 +2,7 @@
 
 Web para encadenar acordes y construir melodías sobre ellos, en guitarra y piano,
 con 29 escalas y modos. No necesita instalación: abre `index.html` en el navegador.
+La interfaz está en español y en inglés (selector arriba a la derecha).
 
 - `js/theory.js`: escalas, acordes, ortografía y grados romanos.
 - `js/suggest.js`: puntúa el siguiente acorde y explica por qué. Aquí están las
@@ -10,6 +11,7 @@ con 29 escalas y modos. No necesita instalación: abre `index.html` en el navega
 - `js/voicings.js`: digitaciones de guitarra y posiciones de piano.
 - `js/drums.js`: rueda de ritmos, repartos euclídeos y variación entre compases.
 - `js/midi.js`: salida a un instrumento externo.
+- `js/i18n.js`: textos en inglés de la interfaz y de los datos.
 - `js/spanish.js`: de la letra en español a sílabas con su pronunciación (IPA).
 - `js/voice.js`: reparte la letra sobre la melodía y pide al motor que la cante.
 - `voice/`: el puente en Rust con el motor de voz; `js/voz-wasm.js` es su compilado.
@@ -54,6 +56,11 @@ compilado a WebAssembly dentro de `js/voz-wasm.js`, así que la app sigue abrié
 doble clic. Para recompilarlo hace falta Rust con el destino `wasm32-unknown-unknown`:
 
     voice/build.sh
+
+Cada idioma canta con sus fonemas: en español, con las reglas de `js/spanish.js` (y acento
+de España o Latinoamérica); en inglés, con el silabeo del propio motor y el diccionario de
+pronunciación CMU (`js/cmudict.js`, que se carga al pasar al inglés; licencia en
+`voice/CMUDICT-LICENSE`). Para regenerarlo: `voice/dict.sh`.
 
 La voz solo suena en el navegador: no se envía por MIDI.
 

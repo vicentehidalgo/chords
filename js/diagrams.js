@@ -5,7 +5,7 @@
   const { TUNING } = globalThis.Voicings;
 
   function guitar(v, rootPc, { fingers = true, label = '' } = {}) {
-    if (!v) return '<div class="nodiagram">Sin digitación cómoda</div>';
+    if (!v) return `<div class="nodiagram">${globalThis.I18n ? I18n.tx('Sin digitación cómoda', 'No comfortable fingering') : 'Sin digitación cómoda'}</div>`;
     const SX = 17, SY = 21, X = 26, Y = 24, FRETS = 5;
     const fretted = v.frets.filter((f) => f > 0);
     const max = fretted.length ? Math.max(...fretted) : 0;
@@ -118,7 +118,7 @@
       const a = (step / n) * 2 * Math.PI - Math.PI / 2;
       return [(C + radius * Math.cos(a)).toFixed(1), (C + radius * Math.sin(a)).toFixed(1)];
     };
-    let s = `<svg class="dg-wheel" viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="Rueda de ritmos">`;
+    let s = `<svg class="dg-wheel" viewBox="0 0 ${SIZE} ${SIZE}" role="img" aria-label="${globalThis.I18n ? I18n.tx('Rueda de ritmos', 'Rhythm wheel') : 'Rueda de ritmos'}">`;
     for (let b = 0; b < 4; b++) {
       const [x, y] = point(OUTER + 12, b, 4);
       s += `<line class="w-beat" x1="${C}" y1="${C}" x2="${x}" y2="${y}"/>`;

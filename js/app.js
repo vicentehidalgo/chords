@@ -8,11 +8,12 @@
   const M = globalThis.Melody;
   const { Sound, Midi, Drums, Voice, Spanish } = globalThis;
   const { mod } = T;
+  const { tx, tr } = globalThis.I18n;
   const $ = (id) => document.getElementById(id);
 
   const STORE = 'enlace.v1';
   const DEFAULTS = {
-    tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin',
+    tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin', lang: null,
     outside: true, smooth: true, bpm: 88, loop: true, playChords: true, playMelody: true,
     tab: 'chords', swing: 50, comp: 'whole', midiOn: false, midiOut: null,
     sendChords: true, sendMelody: true, sendDrums: true,
@@ -41,6 +42,12 @@
     if (state.lyrics) state.prog.forEach((it) => { if (!it.vmel) it.vmel = [it.mel.slice()]; });
   }
   delete state.lyrics;
+
+  // Idioma: el guardado o, la primera vez, el del navegador.
+  if (state.lang !== 'es' && state.lang !== 'en') {
+    state.lang = /^es\b/i.test((globalThis.navigator && navigator.language) || 'es') ? 'es' : 'en';
+  }
+  globalThis.I18n.set(state.lang);
 
   // Estado que no se guarda.
   const ui = {
@@ -129,10 +136,10 @@
     return noteLabel(pick);
   }
 
-  const FN_LABEL = { T: 'Tónica', S: 'Subdominante', D: 'Dominante', M: 'Color modal' };
+  const fnLabel = (f) => ({ T: tx('Tónica', 'Tonic'), S: tx('Subdominante', 'Subdominant'), D: tx('Dominante', 'Dominant'), M: tx('Color modal', 'Modal colour') })[f];
 
   function chordLabel(c) {
-    return `${T.chordText(c, state.notation)}, ${c.q.label}`;
+    return `${T.chordText(c, state.notation)}, ${tr(c.q.label)}`;
   }
 
   // Diagramas de un acorde según el instrumento activo ----------------------
@@ -149,12 +156,12 @@
       });
     });
     const [start, end] = D.pianoRange(v.midis);
-    return D.piano(start, end, marks, { label: 'Teclado: ' + chordLabel(c) });
+    return D.piano(start, end, marks, { label: tx('Teclado: ', 'Keyboard: ') + chordLabel(c) });
   }
 
   function diagramsFor(c, g, p, big) {
     const out = [];
-    if (state.instrument !== 'piano') out.push(`<div class="dg g">${D.guitar(g, c.root.pc, { fingers: big, label: 'Guitarra: ' + chordLabel(c) })}</div>`);
+    if (state.instrument !== 'piano') out.push(`<div class="dg g">${D.guitar(g, c.root.pc, { fingers: big, label: tx('Guitarra: ', 'Guitar: ') + chordLabel(c) })}</div>`);
     if (state.instrument !== 'guitar') out.push(`<div class="dg p">${pianoFor(p, c, big)}</div>`);
     return out.join('');
   }
@@ -174,18 +181,18 @@
       return `<option value="${pc}" ${pc === state.tonic ? 'selected' : ''}>${names.join(' / ')}</option>`;
     }).join('');
     const groups = [...new Set(T.SCALES.map((s) => s.group))];
-    const scales = groups.map((g) => `<optgroup label="${g}">${T.SCALES.filter((s) => s.group === g)
-      .map((s) => `<option value="${s.id}" ${s.id === state.scale ? 'selected' : ''}>${s.name}</option>`).join('')}</optgroup>`).join('');
+    const scales = groups.map((g) => `<optgroup label="${tr(g)}">${T.SCALES.filter((s) => s.group === g)
+      .map((s) => `<option value="${s.id}" ${s.id === state.scale ? 'selected' : ''}>${tr(s.name)}</option>`).join('')}</optgroup>`).join('');
 
     $('controls').innerHTML = `
-      <select id="c-tonic" aria-label="Tónica">${tonics}</select>
-      <select id="c-scale" class="wide" aria-label="Escala o modo">${scales}</select>
-      ${seg('level', [[0, 'Tríadas'], [1, 'Con 7ª'], [2, 'Todos']], state.level)}
-      ${seg('instrument', [['guitar', 'Guitarra'], ['piano', 'Piano'], ['both', 'Ambos']], state.instrument)}`;
+      <select id="c-tonic" aria-label="${tx('Tónica', 'Tonic')}">${tonics}</select>
+      <select id="c-scale" class="wide" aria-label="${tx('Escala o modo', 'Scale or mode')}">${scales}</select>
+      ${seg('level', [[0, tx('Tríadas', 'Triads')], [1, tx('Con 7ª', 'Sevenths')], [2, tx('Todos', 'All')]], state.level)}
+      ${seg('instrument', [['guitar', tx('Guitarra', 'Guitar')], ['piano', 'Piano'], ['both', tx('Ambos', 'Both')]], state.instrument)}`;
     $('options').innerHTML = `
-      <div class="field"><span>Notas</span>${seg('notation', [['latin', 'Do Re Mi'], ['intl', 'C D E']], state.notation)}</div>
-      <label class="check"><input type="checkbox" id="c-outside" ${state.outside ? 'checked' : ''}> Sugerir fuera de escala</label>
-      <label class="check"><input type="checkbox" id="c-smooth" ${state.smooth ? 'checked' : ''}> Enlazar posiciones</label>`;
+      <div class="field"><span>${tx('Notas', 'Note names')}</span>${seg('notation', [['latin', 'Do Re Mi'], ['intl', 'C D E']], state.notation)}</div>
+      <label class="check"><input type="checkbox" id="c-outside" ${state.outside ? 'checked' : ''}> ${tx('Sugerir fuera de escala', 'Suggest chords outside the scale')}</label>
+      <label class="check"><input type="checkbox" id="c-smooth" ${state.smooth ? 'checked' : ''}> ${tx('Enlazar posiciones', 'Link voicings smoothly')}</label>`;
     $('c-tonic').onchange = (e) => { stop(); state.tonic = Number(e.target.value); ui.preview = null; update(); };
     $('c-scale').onchange = (e) => { stop(); state.scale = e.target.value; ui.preview = null; update(); };
     $('c-outside').onchange = (e) => { state.outside = e.target.checked; update(); };
@@ -199,17 +206,17 @@
       const v = voicings[i];
       const outside = c.origin.kind !== 'scale';
       return `<article class="pc ${i === ui.sel ? 'is-sel' : ''} fn-${c.fn} ${outside ? 'is-out' : ''}" data-i="${i}">
-        <button class="pc-main" data-act="select" data-i="${i}" aria-label="Seleccionar ${chordLabel(c)}">
+        <button class="pc-main" data-act="select" data-i="${i}" aria-label="${tx('Seleccionar', 'Select')} ${chordLabel(c)}">
           <span class="roman">${c.roman}</span>${nameHTML(c)}
           <span class="pc-dg">${diagramsFor(c, v.g, v.p, false)}</span>
         </button>
-        <button class="x" data-act="remove" data-i="${i}" aria-label="Quitar ${T.chordText(c, state.notation)}">×</button>
+        <button class="x" data-act="remove" data-i="${i}" aria-label="${tx('Quitar', 'Remove')} ${T.chordText(c, state.notation)}">×</button>
       </article>`;
     }).join('');
 
     const empty = `<div class="empty">
-        <p><strong>Empieza por un acorde.</strong> Elige uno abajo o carga una progresión de ${key.scale.name.toLowerCase()}:</p>
-        <div class="chips">${presetButtons().slice(0, 4).join('') || '<span class="muted">Elige la tónica en «Siguiente acorde».</span>'}</div>
+        <p>${tx(`<strong>Empieza por un acorde.</strong> Elige uno abajo o carga una progresión de ${I18n.scaleInText(key.scale.name)}:`, `<strong>Start with a chord.</strong> Pick one below or load a ${I18n.scaleInText(key.scale.name)} progression:`)}</p>
+        <div class="chips">${presetButtons().slice(0, 4).join('') || `<span class="muted">${tx('Elige la tónica en «Siguiente acorde».', 'Pick the tonic under “Next chord”.')}</span>`}</div>
       </div>`;
 
     $('strip').innerHTML = `<div class="pcs">${chords.length ? cards : empty}</div>`;
@@ -218,17 +225,17 @@
 
   function renderTransport() {
     $('transport').innerHTML = `
-      <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? '■ Parar' : '▶ Reproducir'}</button>
-      <label class="bpm">${state.bpm} ppm <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
+      <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? tx('■ Parar', '■ Stop') : tx('▶ Reproducir', '▶ Play')}</button>
+      <label class="bpm">${state.bpm} ${tx('ppm', 'bpm')} <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
       <label class="bpm">Swing <input type="range" id="c-swing" min="50" max="75" step="1" value="${state.swing}" aria-label="Swing"> <span id="swing-value">${swingLabel()}</span></label>
-      <select id="c-comp" aria-label="Ritmo de los acordes">${Object.entries(M.COMP).map(([id, c]) =>
-        `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${c.name}</option>`).join('')}</select>
-      <button data-act="toggle-loop" aria-pressed="${state.loop}">Bucle</button>
-      <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>Deshacer</button>
-      <button data-act="clear" ${chords.length ? '' : 'disabled'}>Vaciar</button>`;
+      <select id="c-comp" aria-label="${tx('Ritmo de los acordes', 'Chord rhythm')}">${Object.entries(M.COMP).map(([id, c]) =>
+        `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${tr(c.name)}</option>`).join('')}</select>
+      <button data-act="toggle-loop" aria-pressed="${state.loop}">${tx('Bucle', 'Loop')}</button>
+      <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>${tx('Deshacer', 'Undo')}</button>
+      <button data-act="clear" ${chords.length ? '' : 'disabled'}>${tx('Vaciar', 'Clear')}</button>`;
     $('c-bpm').oninput = (e) => {
       state.bpm = Number(e.target.value);
-      e.target.parentElement.firstChild.textContent = state.bpm + ' ppm ';
+      e.target.parentElement.firstChild.textContent = state.bpm + tx(' ppm ', ' bpm ');
       save();
       applyFx();
       if (state.tab === 'voice') renderVoice();
@@ -244,14 +251,14 @@
     updateSwingHint();
   }
 
-  const swingLabel = () => (state.swing === 50 ? 'recto' : state.swing + '%');
+  const swingLabel = () => (state.swing === 50 ? tx('recto', 'straight') : state.swing + '%');
 
   // Con golpes solo en partes fuertes el swing no altera los acordes: se avisa.
   function updateSwingHint() {
     const onBeats = M.COMP[state.comp].hits.every((s) => s % 2 === 0);
     $('c-comp').title = state.swing > 50 && onBeats
-      ? 'Este ritmo no tiene contratiempos: el swing solo se oirá en la melodía'
-      : 'Ritmo de los acordes';
+      ? tx('Este ritmo no tiene contratiempos: el swing solo se oirá en la melodía', 'This rhythm has no off-beats: swing will only be heard in the melody')
+      : tx('Ritmo de los acordes', 'Chord rhythm');
     $('c-comp').classList.toggle('needs-offbeat', state.swing > 50 && onBeats);
   }
 
@@ -274,18 +281,18 @@
     const pv = p[state.smooth ? V.pickPiano(c, currentV && currentV.p) : 0];
     const origin = originLabel(c);
     return `<article class="sg fn-${c.fn}">
-      <button class="sg-main" data-act="add" data-id="${c.id}" aria-label="Añadir ${chordLabel(c)}">
+      <button class="sg-main" data-act="add" data-id="${c.id}" aria-label="${tx('Añadir', 'Add')} ${chordLabel(c)}">
         <span class="sg-head">
           <span class="roman">${c.roman}</span>${nameHTML(c)}
-          <span class="meter" title="Encaje ${s.score} de 100"><i style="width:${s.score}%"></i></span>
+          <span class="meter" title="${tx(`Encaje ${s.score} de 100`, `Fit ${s.score} out of 100`)}"><i style="width:${s.score}%"></i></span>
         </span>
-        ${origin ? `<span class="origin">${origin}</span>` : ''}
+        ${origin ? `<span class="origin">${tr(origin)}</span>` : ''}
         <span class="sg-body">
-          <span class="why">${s.reasons.slice(0, 2).map((r) => `<span class="r-${r.kind}">${r.text}</span>`).join('')}</span>
+          <span class="why">${s.reasons.slice(0, 2).map((r) => `<span class="r-${r.kind}">${tr(r.text)}</span>`).join('')}</span>
           <span class="sg-dg">${diagramsFor(c, gv, pv, false)}</span>
         </span>
       </button>
-      <button class="hear" data-act="preview" data-id="${c.id}" aria-label="Escuchar y ver ${T.chordText(c, state.notation)}">▶</button>
+      <button class="hear" data-act="preview" data-id="${c.id}" aria-label="${tx('Escuchar y ver', 'Hear and view')} ${T.chordText(c, state.notation)}">▶</button>
     </article>`;
   }
 
@@ -305,17 +312,17 @@
     const nOut = ui.more ? 8 : 2;
     const current = chords[sel];
     const title = current
-      ? `Después de ${nameHTML(current)}`
-      : 'Para empezar';
-    const insertNote = nextChord ? `<span class="muted"> · se inserta antes de ${T.chordText(nextChord, state.notation)}</span>` : '';
+      ? `${tx('Después de', 'After')} ${nameHTML(current)}`
+      : tx('Para empezar', 'To begin');
+    const insertNote = nextChord ? `<span class="muted"> · ${tx('se inserta antes de', 'inserted before')} ${T.chordText(nextChord, state.notation)}</span>` : '';
 
     $('next').innerHTML = `
       <div class="panel-head"><h2>${title}${insertNote}</h2>
-        <div class="legend">${Object.entries(FN_LABEL).map(([k, v]) => `<span class="fn-${k}"><i></i>${v}</span>`).join('')}</div>
+        <div class="legend">${['T', 'S', 'D', 'M'].map((k) => `<span class="fn-${k}"><i></i>${fnLabel(k)}</span>`).join('')}</div>
       </div>
       <div class="sgs">${a.slice(0, nIn).map((s) => suggestionCard(s, currentV)).join('')}</div>
-      ${b.length ? `<h3>Fuera de la escala</h3><div class="sgs">${b.slice(0, nOut).map((s) => suggestionCard(s, currentV)).join('')}</div>` : ''}
-      <button class="link" data-act="more">${ui.more ? 'Ver menos' : 'Ver más opciones'}</button>`;
+      ${b.length ? `<h3>${tx('Fuera de la escala', 'Outside the scale')}</h3><div class="sgs">${b.slice(0, nOut).map((s) => suggestionCard(s, currentV)).join('')}</div>` : ''}
+      <button class="link" data-act="more">${ui.more ? tx('Ver menos', 'Show fewer') : tx('Ver más opciones', 'Show more options')}</button>`;
   }
 
   function levelAllows(c) {
@@ -359,12 +366,12 @@
     [...groups.safe, ...groups.tension, ...groups.avoid].forEach((n) => marks.set(n.pc, { cls: cls[n.r], label: state.notation === 'latin' ? short(n.label) : n.label }));
     const parts = [];
     if (state.instrument !== 'piano') {
-      parts.push(`<div class="neck">${D.fretboard(marks, { frets: 12, label: 'Notas sobre el mástil' })}</div>`);
+      parts.push(`<div class="neck">${D.fretboard(marks, { frets: 12, label: tx('Notas sobre el mástil', 'Notes on the fretboard') })}</div>`);
     }
     if (state.instrument !== 'guitar') {
       const midi = new Map();
       for (let m = 48; m <= 83; m++) if (marks.has(mod(m))) midi.set(m, marks.get(mod(m)));
-      parts.push(`<div class="keys">${D.piano(48, 83, midi, { label: 'Notas sobre el teclado' })}</div>`);
+      parts.push(`<div class="keys">${D.piano(48, 83, midi, { label: tx('Notas sobre el teclado', 'Notes on the keyboard') })}</div>`);
     }
     return parts.join('');
   }
@@ -372,20 +379,20 @@
   function renderDetail() {
     const f = focusChord();
     if (!f) {
-      $('detail').innerHTML = `<div class="panel-head"><h2>Escala</h2></div>
-        <p class="muted">Notas de ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}:</p>
+      $('detail').innerHTML = `<div class="panel-head"><h2>${tx('Escala', 'Scale')}</h2></div>
+        <p class="muted">${tx(`Notas de ${noteLabel(key.tonic)} ${I18n.scaleInText(key.scale.name)}:`, `Notes of ${noteLabel(key.tonic)} ${I18n.scaleInText(key.scale.name)}:`)}</p>
         <p class="scale-notes">${key.notes.map((n) => `<span><b>${noteLabel(n)}</b><i>${n.deg.replace('b', '♭').replace('#', '♯')}</i></span>`).join('')}</p>`;
       return;
     }
     const { c } = f;
     const origin = originLabel(c);
     const nav = (act, i, len) => (len > 1 ? `<div class="vnav">
-        <button data-act="${act}" data-d="-1" aria-label="Posición anterior">‹</button><span>${i + 1} / ${len}</span>
-        <button data-act="${act}" data-d="1" aria-label="Posición siguiente">›</button></div>` : '');
+        <button data-act="${act}" data-d="-1" aria-label="${tx('Posición anterior', 'Previous voicing')}">‹</button><span>${i + 1} / ${len}</span>
+        <button data-act="${act}" data-d="1" aria-label="${tx('Posición siguiente', 'Next voicing')}">›</button></div>` : '');
 
     const big = [];
     if (state.instrument !== 'piano') {
-      big.push(`<div class="big g">${D.guitar(f.g, c.root.pc, { label: 'Guitarra: ' + chordLabel(c) })}${nav('voice-g', f.gi, f.gl.length)}</div>`);
+      big.push(`<div class="big g">${D.guitar(f.g, c.root.pc, { label: tx('Guitarra: ', 'Guitar: ') + chordLabel(c) })}${nav('voice-g', f.gi, f.gl.length)}</div>`);
     }
     if (state.instrument !== 'guitar') {
       big.push(`<div class="big p">${pianoFor(f.p, c, true)}${nav('voice-p', f.pi, f.pl.length)}</div>`);
@@ -395,11 +402,11 @@
       <div class="panel-head">
         <h2 class="detail-title">${nameHTML(c)} <span class="roman">${c.roman}</span></h2>
         <div class="row">
-          <button data-act="hear-focus">▶ Escuchar</button>
-          ${f.preview ? `<button class="primary" data-act="add" data-id="${c.id}">Añadir</button><button data-act="close-preview">Cerrar</button>` : ''}
+          <button data-act="hear-focus">${tx('▶ Escuchar', '▶ Listen')}</button>
+          ${f.preview ? `<button class="primary" data-act="add" data-id="${c.id}">${tx('Añadir', 'Add')}</button><button data-act="close-preview">${tx('Cerrar', 'Close')}</button>` : ''}
         </div>
       </div>
-      <p class="meta"><span class="tag fn-${c.fn}">${FN_LABEL[c.fn]}</span> ${c.q.label}${origin ? ' · ' + origin : ''}</p>
+      <p class="meta"><span class="tag fn-${c.fn}">${fnLabel(c.fn)}</span> ${tr(c.q.label)}${origin ? ' · ' + tr(origin) : ''}</p>
       <div class="detail-body">
         <p class="tones">${c.tones.map((t) => `<span><b>${noteLabel(t)}</b><i>${t.deg.replace('b', '♭').replace('#', '♯')}</i></span>`).join('')}</p>
         <div class="bigs">${big.join('')}</div>
@@ -410,14 +417,14 @@
     const c = chords[ui.sel];
     if (!c) { $('melody-map').innerHTML = ''; return; }
     const groups = roleGroups(c);
-    const chips = (list) => list.map((n) => `<b>${n.label}</b>`).join(' ') || '<span class="muted">ninguna</span>';
+    const chips = (list) => list.map((n) => `<b>${n.label}</b>`).join(' ') || `<span class="muted">${tx('ninguna', 'none')}</span>`;
     $('melody-map').innerHTML = `<div class="map">
       <div class="map-side">
-        <h2>Sobre ${nameHTML(c)}</h2>
+        <h2>${tx('Sobre', 'Over')} ${nameHTML(c)}</h2>
         <dl class="roles">
-          <div class="role-safe"><dt>Seguras</dt><dd>${chips(groups.safe)}</dd></div>
-          <div class="role-tension"><dt>Dan tensión</dt><dd>${chips(groups.tension)}</dd></div>
-          <div class="role-avoid"><dt>De paso</dt><dd>${chips(groups.avoid)}</dd></div>
+          <div class="role-safe"><dt>${tx('Seguras', 'Safe')}</dt><dd>${chips(groups.safe)}</dd></div>
+          <div class="role-tension"><dt>${tx('Dan tensión', 'Add tension')}</dt><dd>${chips(groups.tension)}</dd></div>
+          <div class="role-avoid"><dt>${tx('De paso', 'Passing only')}</dt><dd>${chips(groups.avoid)}</dd></div>
         </dl>
       </div>
       <div class="map-instruments">${melodyMap(c)}</div>
@@ -428,10 +435,10 @@
 
   function legendHTML() {
     return `<div class="mel-legend">
-          <span class="r-chord"><i></i>Del acorde: reposo</span>
-          <span class="r-tension"><i></i>De la escala: movimiento</span>
-          <span class="r-avoid"><i></i>Choca: úsala de paso</span>
-          <span class="r-out"><i></i>Fuera de escala</span>
+          <span class="r-chord"><i></i>${tx('Del acorde: reposo', 'Chord tone: rest')}</span>
+          <span class="r-tension"><i></i>${tx('De la escala: movimiento', 'Scale tone: movement')}</span>
+          <span class="r-avoid"><i></i>${tx('Choca: úsala de paso', 'Clashes: use in passing')}</span>
+          <span class="r-out"><i></i>${tx('Fuera de escala', 'Outside the scale')}</span>
         </div>`;
   }
 
@@ -446,12 +453,12 @@
     const showHarm = track === 'v' && state.harmony !== 'off' && state.stanzas[state.stanza].harmony !== false;
 
     const head = chords.map((c, i) =>
-      `<button class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" data-act="select" data-i="${i}" style="grid-column:span ${M.STEPS}" aria-label="Ver notas sobre ${chordLabel(c)}">${nameHTML(c)}</button>`).join('');
+      `<button class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" data-act="select" data-i="${i}" style="grid-column:span ${M.STEPS}" aria-label="${tx('Ver notas sobre', 'See notes over')} ${chordLabel(c)}">${nameHTML(c)}</button>`).join('');
 
     let lyricRow = '';
     if (lyrics) {
       const at = new Map(lyrics.map((p) => [p.i * M.STEPS + p.s, p]));
-      lyricRow = '<div class="mel-label lyr-label">Letra</div>';
+      lyricRow = `<div class="mel-label lyr-label">${tx('Letra', 'Lyrics')}</div>`;
       for (let g = 0; g < steps; ) {
         const p = at.get(g);
         const bar = g % M.STEPS === 0 ? ' bar' : '';
@@ -509,7 +516,7 @@
     const left = scroller ? scroller.scrollLeft : 0;
 
     if (!chords.length) {
-      el.innerHTML = `<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir una melodía sobre ella.</p>`;
+      el.innerHTML = `<p class="muted">${tx('Crea una progresión en la pestaña Progresión y aquí podrás escribir una melodía sobre ella.', 'Build a progression in the Progression tab and you can write a melody over it here.')}</p>`;
       return;
     }
 
@@ -517,11 +524,11 @@
       <div class="panel-head">
         ${legendHTML()}
         <div class="row">
-          <button class="primary" data-act="mel-generate">Proponer melodía</button>
-          <button data-act="mel-clear">Borrar melodía</button>
+          <button class="primary" data-act="mel-generate">${tx('Proponer melodía', 'Suggest a melody')}</button>
+          <button data-act="mel-clear">${tx('Borrar melodía', 'Clear melody')}</button>
         </div>
       </div>
-      <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar. La voz tiene su propia melodía, en la pestaña Letra.</p>
+      <p class="muted help">${tx('Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar. La voz tiene su propia melodía, en la pestaña Letra.', 'Click to place a note; it lasts until the next one. Click again to remove it. Rings mark good notes to continue. The voice has its own melody, in the Lyrics tab.')}</p>
       <div class="mel-scroll">${gridHTML('m')}</div>`;
     el.querySelector('.mel-scroll').scrollLeft = left;
   }
@@ -568,23 +575,23 @@
 
   function presetButtons() {
     return presetsFor(key).map((p, i) =>
-      `<button class="preset" data-act="preset" data-i="${i}"><b>${p.name}</b><span>${p.chords.map((c) => c.roman).join(' – ')}</span></button>`);
+      `<button class="preset" data-act="preset" data-i="${i}"><b>${tr(p.name)}</b><span>${p.chords.map((c) => c.roman).join(' – ')}</span></button>`);
   }
 
   function renderField() {
     const list = [...catalog.values()].filter((c) => c.origin.kind === 'scale' && levelAllows(c));
     $('field').innerHTML = `
-      <div class="panel-head"><h2>Acordes de la escala</h2>
+      <div class="panel-head"><h2>${tx('Acordes de la escala', 'Chords in the scale')}</h2>
         <p class="scale-inline">${key.notes.map((n) => noteLabel(n)).join(' ')}</p></div>
       <div class="fieldchips">${list.map((c) =>
-        `<button class="fc fn-${c.fn}" data-act="add" data-id="${c.id}" aria-label="Añadir ${chordLabel(c)}"><span class="roman">${c.roman}</span>${nameHTML(c)}</button>`).join('')}</div>`;
+        `<button class="fc fn-${c.fn}" data-act="add" data-id="${c.id}" aria-label="${tx('Añadir', 'Add')} ${chordLabel(c)}"><span class="roman">${c.roman}</span>${nameHTML(c)}</button>`).join('')}</div>`;
   }
 
   function renderPresets() {
     const list = presetButtons();
-    $('presets').innerHTML = `<div class="panel-head"><h2>Progresiones conocidas</h2></div>
+    $('presets').innerHTML = `<div class="panel-head"><h2>${tx('Progresiones conocidas', 'Well-known progressions')}</h2></div>
       ${list.length ? `<div class="presets">${list.join('')}</div>`
-        : `<p class="muted">No hay progresiones guardadas para esta escala. Construye la tuya con las sugerencias.</p>`}`;
+        : `<p class="muted">${tx('No hay progresiones guardadas para esta escala. Construye la tuya con las sugerencias.', 'No saved progressions for this scale. Build your own from the suggestions.')}</p>`}`;
   }
 
   // Percusión -------------------------------------------------------------------
@@ -609,20 +616,20 @@
     const n = r.steps.length;
     const options = (entries, value) => entries.map(([id, label]) =>
       `<option value="${id}" ${id === value ? 'selected' : ''}>${label}</option>`).join('');
-    const name = Drums.necklaceName(r.steps);
+    const name = tr(Drums.necklaceName(r.steps));
     return `<div class="ring-row fam-${Drums.INSTRUMENTS[r.inst].family} ${r.muted ? 'is-muted' : ''}">
       <i class="swatch"></i>
-      <select class="ring-inst" data-ring="${i}" data-f="inst" aria-label="Instrumento">${options(Object.entries(Drums.INSTRUMENTS).map(([id, x]) => [id, x.name]), r.inst)}</select>
-      <label class="ring-num ring-n">Pasos <input type="range" min="2" max="${Drums.MAX_STEPS}" value="${n}" data-ring="${i}" data-f="n"><b id="ring-n-${i}">${n}</b></label>
-      <label class="ring-num ring-k">Golpes <input type="range" min="0" max="${n}" value="${k}" data-ring="${i}" data-f="k" id="ring-kr-${i}"><b id="ring-k-${i}">${k}</b></label>
+      <select class="ring-inst" data-ring="${i}" data-f="inst" aria-label="${tx('Instrumento', 'Instrument')}">${options(Object.entries(Drums.INSTRUMENTS).map(([id, x]) => [id, tr(x.name)]), r.inst)}</select>
+      <label class="ring-num ring-n">${tx('Pasos', 'Steps')} <input type="range" min="2" max="${Drums.MAX_STEPS}" value="${n}" data-ring="${i}" data-f="n"><b id="ring-n-${i}">${n}</b></label>
+      <label class="ring-num ring-k">${tx('Golpes', 'Hits')} <input type="range" min="0" max="${n}" value="${k}" data-ring="${i}" data-f="k" id="ring-kr-${i}"><b id="ring-k-${i}">${k}</b></label>
       <span class="row ring-acts">
-        <button data-act="ring-rotate" data-i="${i}" data-d="-1" aria-label="Girar a la izquierda">↺</button>
-        <button data-act="ring-rotate" data-i="${i}" data-d="1" aria-label="Girar a la derecha">↻</button>
-        <button data-act="ring-mute" data-i="${i}" aria-pressed="${r.muted}">Mudo</button>
-        <button data-act="ring-remove" data-i="${i}" aria-label="Quitar anillo">×</button>
+        <button data-act="ring-rotate" data-i="${i}" data-d="-1" aria-label="${tx('Girar a la izquierda', 'Rotate left')}">↺</button>
+        <button data-act="ring-rotate" data-i="${i}" data-d="1" aria-label="${tx('Girar a la derecha', 'Rotate right')}">↻</button>
+        <button data-act="ring-mute" data-i="${i}" aria-pressed="${r.muted}">${tx('Mudo', 'Mute')}</button>
+        <button data-act="ring-remove" data-i="${i}" aria-label="${tx('Quitar anillo', 'Remove ring')}">×</button>
         <span class="necklace" id="ring-name-${i}">${name || ''}</span>
       </span>
-      <select class="ring-gate" data-ring="${i}" data-f="gate" aria-label="Cuándo toca" title="Cuándo toca este anillo">${options(Object.entries(Drums.GATES), r.gate)}</select>
+      <select class="ring-gate" data-ring="${i}" data-f="gate" aria-label="${tx('Cuándo toca', 'When it plays')}" title="${tx('Cuándo toca este anillo', 'When this ring plays')}">${options(Object.entries(Drums.GATES).map(([id, g]) => [id, tr(g)]), r.gate)}</select>
     </div>`;
   }
 
@@ -631,19 +638,19 @@
     $('rings').innerHTML = `
       <div class="panel-head">
         <div class="row">
-          <button class="primary" data-act="drum-invent">Inventar ritmo</button>
-          <button data-act="drum-mutate" ${state.rings.length ? '' : 'disabled'}>Mutar</button>
-          <button data-act="ring-add" ${full ? 'disabled' : ''}>Añadir anillo</button>
+          <button class="primary" data-act="drum-invent">${tx('Inventar ritmo', 'Invent a rhythm')}</button>
+          <button data-act="drum-mutate" ${state.rings.length ? '' : 'disabled'}>${tx('Mutar', 'Mutate')}</button>
+          <button data-act="ring-add" ${full ? 'disabled' : ''}>${tx('Añadir anillo', 'Add ring')}</button>
         </div>
         <div class="row">
-          <label class="bpm">Vida <input type="range" id="c-life" min="0" max="100" step="5" value="${state.life}" aria-label="Variación entre compases"> <span id="life-value">${state.life}%</span></label>
-          <button data-act="drum-clear" ${state.rings.length ? '' : 'disabled'}>Vaciar</button>
+          <label class="bpm">${tx('Vida', 'Life')} <input type="range" id="c-life" min="0" max="100" step="5" value="${state.life}" aria-label="${tx('Variación entre compases', 'Variation between bars')}"> <span id="life-value">${state.life}%</span></label>
+          <button data-act="drum-clear" ${state.rings.length ? '' : 'disabled'}>${tx('Vaciar', 'Clear')}</button>
         </div>
       </div>
       <div class="ring-list">${state.rings.length ? state.rings.map(ringRow).join('')
-        : `<p class="muted">Cada anillo es un instrumento y da una vuelta por compás. Si tienen distinto número de pasos, se forma una polirritmia. Elige un ritmo para empezar.</p>`}</div>
+        : `<p class="muted">${tx('Cada anillo es un instrumento y da una vuelta por compás. Si tienen distinto número de pasos, se forma una polirritmia. Elige un ritmo para empezar.', 'Each ring is an instrument and goes round once per bar. When rings have different step counts, they form a polyrhythm. Pick a rhythm to start.')}</p>`}</div>
       <div class="drum-presets">${Drums.PRESETS.map((p, i) =>
-        `<button data-act="drum-preset" data-i="${i}">${p.name}</button>`).join('')}</div>`;
+        `<button data-act="drum-preset" data-i="${i}">${tr(p.name)}</button>`).join('')}</div>`;
     $('c-life').oninput = (e) => {
       state.life = Number(e.target.value);
       $('life-value').textContent = state.life + '%';
@@ -668,7 +675,7 @@
     $(`ring-n-${i}`).textContent = n;
     $(`ring-k-${i}`).textContent = k;
     $(`ring-kr-${i}`).max = n;
-    $(`ring-name-${i}`).textContent = Drums.necklaceName(r.steps) || '';
+    $(`ring-name-${i}`).textContent = tr(Drums.necklaceName(r.steps)) || '';
     save();
     renderWheel();
     renderTransport();
@@ -743,34 +750,34 @@
     const el = $('midi');
     $('midi-status').textContent = Midi.output ? '●' : '';
     if (!Midi.supported()) {
-      el.innerHTML = `<p class="muted">Este navegador no permite MIDI. Abre la web en Chrome o Edge.</p>`;
+      el.innerHTML = `<p class="muted">${tx('Este navegador no permite MIDI. Abre la web en Chrome o Edge.', 'This browser does not support MIDI. Open the page in Chrome or Edge.')}</p>`;
       return;
     }
     if (!Midi.connected) {
       el.innerHTML = `
-        <button data-act="midi-connect">Conectar instrumento</button>
-        <p class="muted">Enchúfalo por USB antes de conectar. El navegador te pedirá permiso.</p>
+        <button data-act="midi-connect">${tx('Conectar instrumento', 'Connect instrument')}</button>
+        <p class="muted">${tx('Enchúfalo por USB antes de conectar. El navegador te pedirá permiso.', 'Plug it in over USB before connecting. The browser will ask for permission.')}</p>
         ${ui.midiError ? `<p class="midi-error">${ui.midiError}</p>` : ''}`;
       return;
     }
     const outs = Midi.list();
     const current = Midi.output;
     if (!outs.length) {
-      el.innerHTML = `<p class="muted">No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.</p>`;
+      el.innerHTML = `<p class="muted">${tx('No se detecta ningún instrumento. Conéctalo por USB y aparecerá aquí.', 'No instrument detected. Connect it over USB and it will appear here.')}</p>`;
       return;
     }
     el.innerHTML = `
-      <label class="field wide"><span>Instrumento</span><select id="m-out">${outs.map((o) =>
+      <label class="field wide"><span>${tx('Instrumento', 'Instrument')}</span><select id="m-out">${outs.map((o) =>
         `<option value="${escapeAttr(o.id)}" ${current && o.id === current.id ? 'selected' : ''}>${escapeText(o.name)}</option>`).join('')}</select></label>
-      <div class="field"><span>Enviar</span><div class="seg" role="group">
-        ${[['sendChords', 'Progresión'], ['sendMelody', 'Melodía'], ['sendDrums', 'Percusión']].map(([k, label]) =>
+      <div class="field"><span>${tx('Enviar', 'Send')}</span><div class="seg" role="group">
+        ${[['sendChords', tx('Progresión', 'Progression')], ['sendMelody', tx('Melodía', 'Melody')], ['sendDrums', tx('Percusión', 'Drums')]].map(([k, label]) =>
           `<button data-act="midi-send" data-v="${k}" aria-pressed="${state[k]}">${label}</button>`).join('')}
       </div></div>
-      ${sendsChords() ? channelSelect('m-chord-ch', 'Canal progresión', state.midiChordCh) : ''}
-      ${sendsMelody() ? channelSelect('m-melody-ch', 'Canal melodía', state.midiMelodyCh) : ''}
-      ${state.sendDrums ? channelSelect('m-drum-ch', 'Canal percusión', state.midiDrumCh) : ''}
-      <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> Sonar también en el navegador</label>
-      <button data-act="midi-panic">Silenciar instrumento</button>`;
+      ${sendsChords() ? channelSelect('m-chord-ch', tx('Canal progresión', 'Progression channel'), state.midiChordCh) : ''}
+      ${sendsMelody() ? channelSelect('m-melody-ch', tx('Canal melodía', 'Melody channel'), state.midiMelodyCh) : ''}
+      ${state.sendDrums ? channelSelect('m-drum-ch', tx('Canal percusión', 'Drum channel'), state.midiDrumCh) : ''}
+      <label class="check"><input type="checkbox" id="m-local" ${state.localSound ? 'checked' : ''}> ${tx('Sonar también en el navegador', 'Also play in the browser')}</label>
+      <button data-act="midi-panic">${tx('Silenciar instrumento', 'Silence instrument')}</button>`;
     $('m-out').onchange = (e) => { Midi.select(e.target.value); state.midiOut = e.target.value; save(); };
     $('m-local').onchange = (e) => { state.localSound = e.target.checked; save(); renderMutes(); };
     const ch = (id, prop) => {
@@ -792,8 +799,8 @@
     } catch (e) {
       state.midiOn = false;
       ui.midiError = e.name === 'NotAllowedError' || e.name === 'SecurityError'
-        ? 'El navegador ha denegado el acceso. Permite MIDI en el icono junto a la dirección y vuelve a intentarlo.'
-        : 'No se pudo acceder a MIDI: ' + e.message;
+        ? tx('El navegador ha denegado el acceso. Permite MIDI en el icono junto a la dirección y vuelve a intentarlo.', 'The browser denied access. Allow MIDI from the icon next to the address bar and try again.')
+        : tx('No se pudo acceder a MIDI: ', 'Could not access MIDI: ') + e.message;
     }
     save();
     renderMidi();
@@ -824,7 +831,11 @@
     while (it.vmel.length <= k) it.vmel.push(Array(M.STEPS).fill(null));
     return it.vmel[k];
   }
-  const syllsOf = (k) => Spanish.syllables((state.stanzas[k] || {}).lyrics || '', { seseo: state.accent === 'latam' });
+  // Cada idioma canta con sus fonemas: español con reglas propias, inglés con el diccionario CMU.
+  function syllsOf(k) {
+    const text = (state.stanzas[k] || {}).lyrics || '';
+    return state.lang === 'en' ? Voice.english(text) : Spanish.syllables(text, { seseo: state.accent === 'latam' });
+  }
   const stanzaCount = () => state.stanzas.length;
 
   // Qué canta la voz: cada estrofa sobre una vuelta de la progresión, con su letra.
@@ -919,7 +930,7 @@
   }
 
   // El eco cae a tempo: a la corchea, a la corchea con puntillo o a la negra.
-  const ECHO_TIMES = { eighth: { name: 'Corchea', long: 'corchea', beats: .5 }, dotted: { name: 'Puntillo', long: 'corchea con puntillo', beats: .75 }, quarter: { name: 'Negra', long: 'negra', beats: 1 } };
+  const ECHO_TIMES = { eighth: { name: ['Corchea', 'Eighth'], long: ['a la corchea', 'every eighth note'], beats: .5 }, dotted: { name: ['Puntillo', 'Dotted'], long: ['a la corchea con puntillo', 'every dotted eighth'], beats: .75 }, quarter: { name: ['Negra', 'Quarter'], long: ['a la negra', 'every quarter note'], beats: 1 } };
   const echoSeconds = () => 60 / state.bpm * ECHO_TIMES[state.echoTime].beats;
   function applyFx() {
     Sound.voiceFx({ reverb: state.reverb / 100, echo: state.echo / 100, echoTime: echoSeconds() });
@@ -933,11 +944,11 @@
 
   function renderVoiceStatus() {
     const v = ui.voice;
-    const text = !Voice.supported() ? 'Este navegador no puede ejecutar el motor de voz' : {
-      idle: 'Escribe la letra para oírla',
-      rendering: `Cantando… ${Math.round(v.progress * 100)}%`,
-      ready: 'Voz lista',
-      error: 'No se pudo cantar: ' + v.error,
+    const text = !Voice.supported() ? tx('Este navegador no puede ejecutar el motor de voz', 'This browser cannot run the voice engine') : {
+      idle: tx('Escribe la letra para oírla', 'Write lyrics to hear them'),
+      rendering: `${tx('Cantando…', 'Singing…')} ${Math.round(v.progress * 100)}%`,
+      ready: tx('Voz lista', 'Voice ready'),
+      error: tx('No se pudo cantar: ', 'Could not sing: ') + v.error,
     }[v.status];
     document.querySelectorAll('.voice-status').forEach((el) => {
       el.textContent = text;
@@ -950,29 +961,29 @@
   function renderLetra() {
     const head = $('letra-head');
     if (!chords.length) {
-      head.innerHTML = '<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir la letra y la melodía que canta la voz.</p>';
+      head.innerHTML = `<p class="muted">${tx('Crea una progresión en la pestaña Progresión y aquí podrás escribir la letra y la melodía que canta la voz.', 'Build a progression in the Progression tab and you can write the lyrics and the melody the voice sings here.')}</p>`;
       $('letra-grid').innerHTML = '';
       return;
     }
     state.stanza = Math.min(Math.max(0, state.stanza), stanzaCount() - 1);
     const st = state.stanzas[state.stanza];
     const chips = state.stanzas.map((x, k) =>
-      `<button class="stanza-chip" data-act="stanza" data-v="${k}" data-k="${k}" aria-pressed="${k === state.stanza}">Estrofa ${k + 1}</button>`).join('');
+      `<button class="stanza-chip" data-act="stanza" data-v="${k}" data-k="${k}" aria-pressed="${k === state.stanza}">${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
     head.innerHTML = `
       <div class="panel-head">
         <div class="row">
-          <div class="seg" role="group" aria-label="Estrofas">${chips}</div>
-          <button data-act="stanza-add" ${stanzaCount() >= MAX_STANZAS ? 'disabled' : ''} title="Empieza con la melodía de la estrofa actual">+ Estrofa</button>
-          ${stanzaCount() > 1 ? `<button data-act="stanza-remove" title="Quitar la estrofa ${state.stanza + 1}">Quitar</button>` : ''}
+          <div class="seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
+          <button data-act="stanza-add" ${stanzaCount() >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Empieza con la melodía de la estrofa actual', 'Starts with the melody of the current verse')}">${tx('+ Estrofa', '+ Verse')}</button>
+          ${stanzaCount() > 1 ? `<button data-act="stanza-remove" title="${tx('Quitar la estrofa', 'Remove verse')} ${state.stanza + 1}">${tx('Quitar', 'Remove')}</button>` : ''}
         </div>
         <div class="row">
-          <span class="muted">Intensidad</span>${seg('stanza-dyn', Object.entries(Voice.DYNAMICS).map(([id, d]) => [id, d.name]), st.dyn || 'mf')}
-          ${state.harmony !== 'off' ? `<label class="check"><input type="checkbox" id="c-st-harmony" ${st.harmony !== false ? 'checked' : ''}> Segunda voz</label>` : ''}
+          <span class="muted">${tx('Intensidad', 'Dynamics')}</span>${seg('stanza-dyn', [['p', tx('Suave', 'Soft')], ['mf', tx('Normal', 'Normal')], ['f', tx('Fuerte', 'Loud')]], st.dyn || 'mf')}
+          ${state.harmony !== 'off' ? `<label class="check"><input type="checkbox" id="c-st-harmony" ${st.harmony !== false ? 'checked' : ''}> ${tx('Segunda voz', 'Second voice')}</label>` : ''}
         </div>
         <span class="voice-status" role="status"></span>
       </div>
-      <textarea id="c-lyrics" rows="2" spellcheck="true" lang="es" aria-label="Letra de la estrofa ${state.stanza + 1}" placeholder="Letra de la estrofa ${state.stanza + 1}. Por ejemplo: Cielito lindo, los ojos negros"></textarea>
-      <p class="muted help">Cada estrofa suena en una vuelta de la progresión. Una sílaba por nota: «-» alarga la anterior, «_» une dos palabras (de_amor) y la puntuación marca dónde respirar.</p>`;
+      <textarea id="c-lyrics" rows="2" spellcheck="true" lang="${state.lang}" aria-label="${tx('Letra de la estrofa', 'Lyrics of verse')} ${state.stanza + 1}" placeholder="${tx(`Letra de la estrofa ${state.stanza + 1}. Por ejemplo: Cielito lindo, los ojos negros`, `Lyrics of verse ${state.stanza + 1}. For example: Twinkle twinkle little star`)}"></textarea>
+      <p class="muted help">${tx('Cada estrofa suena en una vuelta de la progresión. Una sílaba por nota: «-» alarga la anterior, «_» une dos palabras (de_amor) y la puntuación marca dónde respirar. Se canta con pronunciación española.', 'Each verse plays over one pass of the progression. One syllable per note: “-” holds the previous one, and punctuation marks where to breathe. Sung with English pronunciation.')}</p>`;
     const ta = $('c-lyrics');
     ta.value = state.stanzas[state.stanza].lyrics;
     ta.oninput = () => { state.stanzas[state.stanza].lyrics = ta.value; save(); renderLetraGrid(); };
@@ -991,15 +1002,15 @@
     const sylls = syllsOf(k);
     const al = Voice.align(Voice.notesOf(vmelOf(k)), sylls);
     let warn = '';
-    if (al.extraSyllables.length) warn = `<p class="va-warn">Sobran ${al.extraSyllables.length} sílabas sin nota: «${al.extraSyllables.map((x) => x.text).join(' ')}». Añade notas o pulsa «Ajustar a la letra».</p>`;
-    else if (al.extraNotes && sylls.length) warn = `<p class="va-warn is-soft">${al.extraNotes} notas sin letra: la voz calla en ellas.</p>`;
+    if (al.extraSyllables.length) warn = `<p class="va-warn">${tx(`Sobran ${al.extraSyllables.length} sílabas sin nota: «${al.extraSyllables.map((x) => x.text).join(' ')}». Añade notas o pulsa «Ajustar a la letra».`, `${al.extraSyllables.length} syllables have no note: “${al.extraSyllables.map((x) => x.text).join(' ')}”. Add notes or press “Fit to lyrics”.`)}</p>`;
+    else if (al.extraNotes && sylls.length) warn = `<p class="va-warn is-soft">${tx(`${al.extraNotes} notas sin letra: la voz calla en ellas.`, `${al.extraNotes} notes without lyrics: the voice rests on them.`)}</p>`;
     el.innerHTML = `
       <div class="panel-head">
         ${legendHTML()}
         <div class="row">
-          <button class="primary" data-act="vmel-generate" title="Una nota por sílaba, con las frases en compases enteros">${sylls.length ? 'Ajustar a la letra' : 'Proponer melodía'}</button>
-          <button data-act="vmel-copy" title="Copia aquí la melodía de la pestaña Melodía">Copiar de Melodía</button>
-          <button data-act="vmel-clear">Borrar</button>
+          <button class="primary" data-act="vmel-generate" title="${tx('Una nota por sílaba, con las frases en compases enteros', 'One note per syllable, each phrase in whole bars')}">${sylls.length ? tx('Ajustar a la letra', 'Fit to lyrics') : tx('Proponer melodía', 'Suggest a melody')}</button>
+          <button data-act="vmel-copy" title="${tx('Copia aquí la melodía de la pestaña Melodía', 'Copy the melody from the Melody tab')}">${tx('Copiar de Melodía', 'Copy from Melody')}</button>
+          <button data-act="vmel-clear">${tx('Borrar', 'Clear')}</button>
         </div>
       </div>
       <div class="mel-scroll">${gridHTML('v', al.pairs)}</div>${warn}`;
@@ -1012,7 +1023,7 @@
     return chords.map((c, i) => `<div class="va-bar fn-${c.fn}">
         <span class="va-chord">${nameHTML(c)}</span>
         <div class="va-notes">${byBar[i].map((p) => `<span class="va-note ${p.syl ? '' : 'is-empty'}" data-vn="${k}:${i}:${p.s}">
-          <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}${p.syl && p.harmonyMidi ? ' · ' + midiLabel(p.harmonyMidi) : ''}</small></span>`).join('') || '<span class="va-rest">silencio</span>'}</div>
+          <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}${p.syl && p.harmonyMidi ? ' · ' + midiLabel(p.harmonyMidi) : ''}</small></span>`).join('') || `<span class="va-rest">${tx('silencio', 'rest')}</span>`}</div>
       </div>`).join('');
   }
 
@@ -1020,22 +1031,22 @@
   function renderSong() {
     const el = $('song');
     let body;
-    if (!chords.length) body = '<p class="muted">Crea primero una progresión.</p>';
+    if (!chords.length) body = `<p class="muted">${tx('Crea primero una progresión.', 'Build a progression first.')}</p>`;
     else {
       const plan = voicePlan();
       body = plan.stanzas.map((st) => {
         let warn = '';
-        if (st.extraSyllables.length) warn = `<p class="va-warn">Sobran ${st.extraSyllables.length} sílabas sin nota.</p>`;
-        const empty = !st.pairs.length ? '<p class="muted">Sin melodía todavía.</p>' : `<div class="va-bars">${alignBars(st.pairs, st.k)}</div>`;
-        return `<div class="song-stanza"><h3>Estrofa ${st.k + 1}</h3>${empty}${warn}</div>`;
+        if (st.extraSyllables.length) warn = `<p class="va-warn">${tx(`Sobran ${st.extraSyllables.length} sílabas sin nota.`, `${st.extraSyllables.length} syllables have no note.`)}</p>`;
+        const empty = !st.pairs.length ? `<p class="muted">${tx('Sin melodía todavía.', 'No melody yet.')}</p>` : `<div class="va-bars">${alignBars(st.pairs, st.k)}</div>`;
+        return `<div class="song-stanza"><h3>${tx('Estrofa', 'Verse')} ${st.k + 1}</h3>${empty}${warn}</div>`;
       }).join('');
     }
     el.innerHTML = `
       <div class="panel-head">
-        <h2>Canción</h2>
+        <h2>${tx('Canción', 'Song')}</h2>
         <span class="voice-status" role="status"></span>
       </div>
-      <p class="muted help">La letra y su melodía se escriben en la pestaña <button class="link inline" data-act="tab" data-v="letra">Letra</button>. Aquí se ve lo que cantará la voz, estrofa a estrofa.</p>
+      <p class="muted help">${tx('La letra y su melodía se escriben en la pestaña', 'Lyrics and their melody are written in the')} <button class="link inline" data-act="tab" data-v="letra">${tx('Letra', 'Lyrics')}</button>${tx('. Aquí se ve lo que cantará la voz, estrofa a estrofa.', ' tab. Here you can see what the voice will sing, verse by verse.')}</p>
       <div class="voice-align">${body}</div>`;
     renderVoiceStatus();
   }
@@ -1044,56 +1055,60 @@
     const el = $('voice');
     const plan = voicePlan();
     const sung = plan.pairs.filter((p) => p.syl);
-    const span = (ms) => (ms.length ? `${midiLabel(Math.min(...ms))} a ${midiLabel(Math.max(...ms))}` : '');
+    const span = (ms) => (ms.length ? `${midiLabel(Math.min(...ms))} ${tx('a', 'to')} ${midiLabel(Math.max(...ms))}` : '');
     const range = span(sung.map((p) => p.midi));
     const hRange = span(sung.filter((p) => p.harmonyMidi).map((p) => p.harmonyMidi));
     const vib = Voice.vibratoRate(state.bpm);
-    const bodies = Object.entries(Voice.BODIES).map(([id, b]) => [id, b.name]);
+    const bodies = [['male', tx('Hombre', 'Man')], ['female', tx('Mujer', 'Woman')], ['child', tx('Niño', 'Child')]];
+    const harmonies = [['off', tx('No', 'Off')], ['above3', tx('3ª arriba', '3rd above')], ['below3', tx('3ª abajo', '3rd below')], ['below6', tx('6ª abajo', '6th below')]];
     const slider = (id, label, min, max, value, unit) => `<label class="vslider"><span>${label}</span>
       <input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${label}"><output>${value}${unit}</output></label>`;
     const harmOn = state.harmony !== 'off';
+    const sings = tx('Canta de ', 'Sings from ');
+    const decimal = (x) => tx(x.toFixed(1).replace('.', ','), x.toFixed(1));
     el.innerHTML = `
-      <div class="panel-head"><h2>Voz</h2></div>
+      <div class="panel-head"><h2>${tx('Voz', 'Voice')}</h2></div>
       <div class="vfields">
-        <div class="field"><span>Cuerpo</span>${seg('voice-body', bodies, state.voiceBody)}</div>
-        <div class="field"><span>Acento</span>${seg('accent', [['es', 'España'], ['latam', 'Latinoamérica']], state.accent)}</div>
-        <div class="field"><span>Octava</span>${seg('octave', [['auto', 'Auto'], ['-1', '−1'], ['0', '0'], ['1', '+1']], state.octave)}
-          <span class="muted">${range ? 'Canta de ' + range : ''}${state.octave === 'auto' && range ? ` (${plan.oct > 0 ? '+' : ''}${plan.oct} oct.)` : ''}</span></div>
-        ${slider('v-force', 'Fuerza', 0, 100, state.force, '%')}
+        <div class="field"><span>${tx('Cuerpo', 'Body')}</span>${seg('voice-body', bodies, state.voiceBody)}</div>
+        ${state.lang === 'es' ? `<div class="field"><span>Acento</span>${seg('accent', [['es', 'España'], ['latam', 'Latinoamérica']], state.accent)}</div>`
+          : `<div class="field"><span>Pronunciation</span><span class="muted">English (CMU Pronouncing Dictionary)${ui.dict === 'loading' ? ', loading…' : ''}</span></div>`}
+        <div class="field"><span>${tx('Octava', 'Octave')}</span>${seg('octave', [['auto', 'Auto'], ['-1', '−1'], ['0', '0'], ['1', '+1']], state.octave)}
+          <span class="muted">${range ? sings + range : ''}${state.octave === 'auto' && range ? ` (${plan.oct > 0 ? '+' : ''}${plan.oct} oct.)` : ''}</span></div>
+        ${slider('v-force', tx('Fuerza', 'Power'), 0, 100, state.force, '%')}
         ${slider('v-vibrato', 'Vibrato', 0, 80, state.vibrato, ' cents')}
-        ${slider('v-breath', 'Aire', 0, 60, state.breath, '%')}
-        ${slider('v-bright', 'Brillo', 0, 60, state.bright, '%')}
-        ${slider('v-vol', 'Volumen', 0, 100, state.voiceVol, '%')}
+        ${slider('v-breath', tx('Aire', 'Breath'), 0, 60, state.breath, '%')}
+        ${slider('v-bright', tx('Brillo', 'Brightness'), 0, 60, state.bright, '%')}
+        ${slider('v-vol', tx('Volumen', 'Volume'), 0, 100, state.voiceVol, '%')}
       </div>
       <div class="vgroup">
-        <h3>Segunda voz</h3>
+        <h3>${tx('Segunda voz', 'Second voice')}</h3>
         <div class="vfields">
-          ${seg('harmony', [['off', 'No'], ...Object.entries(Voice.HARMONY).map(([id, h]) => [id, h.name])], state.harmony)}
-          ${harmOn ? `<div class="field"><span>Cuerpo</span>${seg('harmony-body', bodies, state.harmonyBody)}
-            <span class="muted">${hRange ? 'Canta de ' + hRange : 'Sin notas en las estrofas elegidas'}</span></div>
-          ${slider('v-hvol', 'Volumen', 0, 100, state.harmonyVol, '%')}` : '<p class="muted">Una voz paralela dentro de la escala. En la pestaña Letra eliges en qué estrofas canta.</p>'}
+          ${seg('harmony', harmonies, state.harmony)}
+          ${harmOn ? `<div class="field"><span>${tx('Cuerpo', 'Body')}</span>${seg('harmony-body', bodies, state.harmonyBody)}
+            <span class="muted">${hRange ? sings + hRange : tx('Sin notas en las estrofas elegidas', 'No notes in the chosen verses')}</span></div>
+          ${slider('v-hvol', tx('Volumen', 'Volume'), 0, 100, state.harmonyVol, '%')}` : `<p class="muted">${tx('Una voz paralela dentro de la escala. En la pestaña Letra eliges en qué estrofas canta.', 'A parallel voice inside the scale. In the Lyrics tab you choose which verses it sings.')}</p>`}
         </div>
       </div>
       <div class="vgroup">
-        <h3>Sala</h3>
+        <h3>${tx('Sala', 'Room')}</h3>
         <div class="vfields">
-          ${slider('v-reverb', 'Reverb.', 0, 100, state.reverb, '%')}
-          ${slider('v-echo', 'Eco', 0, 100, state.echo, '%')}
-          <div class="field"><span>Eco cada</span>${seg('echo-time', Object.entries(ECHO_TIMES).map(([id, t]) => [id, t.name]), state.echoTime)}</div>
+          ${slider('v-reverb', tx('Reverb.', 'Reverb'), 0, 100, state.reverb, '%')}
+          ${slider('v-echo', tx('Eco', 'Echo'), 0, 100, state.echo, '%')}
+          <div class="field"><span>${tx('Eco cada', 'Echo every')}</span>${seg('echo-time', Object.entries(ECHO_TIMES).map(([id, t]) => [id, tx(...t.name)]), state.echoTime)}</div>
         </div>
       </div>
       <div class="vauto">
-        <h3>Sigue a la canción</h3>
+        <h3>${tx('Sigue a la canción', 'Follows the song')}</h3>
         <ul>
-          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la pestaña Letra${harmOn ? ' y la segunda voz se mueve dentro de esa escala' : ''}.</li>
-          <li><b>Estrofas</b>: ${stanzaCount()}, cada una en una vuelta de la progresión y con su intensidad.</li>
-          <li><b>Tempo</b> ${state.bpm} ppm: cada sílaba dura su nota y las consonantes entran antes del pulso.</li>
-          <li><b>Eco</b> a la ${ECHO_TIMES[state.echoTime].long}: ${Math.round(echoSeconds() * 1000)} ms a este tempo.</li>
-          <li><b>Swing</b> ${swingLabel()}: retrasa las corcheas a contratiempo igual que el resto.</li>
-          <li><b>Vibrato</b> a ${vib.rate.toFixed(1).replace('.', ',')} Hz, ${vib.per} ondas por pulso, solo en las notas largas.</li>
-          <li><b>Respira</b> en los silencios y en la puntuación.</li>
+          <li><b>${tx('Tonalidad', 'Key')}</b> ${noteLabel(key.tonic)} ${I18n.scaleInText(key.scale.name)}: ${tx('canta las notas de la pestaña Letra', 'sings the notes from the Lyrics tab')}${harmOn ? tx(' y la segunda voz se mueve dentro de esa escala', ', and the second voice moves within that scale') : ''}.</li>
+          <li><b>${tx('Estrofas', 'Verses')}</b>: ${stanzaCount()}, ${tx('cada una en una vuelta de la progresión y con su intensidad.', 'each over one pass of the progression, with its own dynamics.')}</li>
+          <li><b>Tempo</b> ${state.bpm} ${tx('ppm', 'bpm')}: ${tx('cada sílaba dura su nota y las consonantes entran antes del pulso.', 'each syllable lasts its note and consonants land before the beat.')}</li>
+          <li><b>${tx('Eco', 'Echo')}</b> ${tx(...ECHO_TIMES[state.echoTime].long)}: ${Math.round(echoSeconds() * 1000)} ms ${tx('a este tempo', 'at this tempo')}.</li>
+          <li><b>Swing</b> ${swingLabel()}: ${tx('retrasa las corcheas a contratiempo igual que el resto.', 'delays off-beat eighths like everything else.')}</li>
+          <li><b>Vibrato</b> ${tx('a', 'at')} ${decimal(vib.rate)} Hz, ${vib.per} ${tx('ondas por pulso, solo en las notas largas.', 'cycles per beat, only on long notes.')}</li>
+          <li><b>${tx('Respira', 'Breathes')}</b> ${tx('en los silencios y en la puntuación.', 'at rests and punctuation.')}</li>
         </ul>
-        <p class="muted">La voz suena en el navegador; no se envía por MIDI. La genera CHIMERA, un modelo físico de garganta y boca.</p>
+        <p class="muted">${tx('La voz suena en el navegador; no se envía por MIDI. La genera CHIMERA, un modelo físico de garganta y boca.', 'The voice plays in the browser; it is not sent over MIDI. It is generated by CHIMERA, a physical model of the throat and mouth.')}</p>
       </div>`;
     const bind = (id, prop, unit, live) => {
       const input = $(id);
@@ -1119,6 +1134,39 @@
 
   // Coordinación ---------------------------------------------------------------
 
+  // Textos fijos de index.html: cada uno guarda su versión inglesa en data-en*.
+  function applyLang() {
+    I18n.set(state.lang);
+    document.documentElement.lang = state.lang;
+    document.title = tx('Enlace · acordes y melodías', 'Enlace · chords and melodies');
+    document.querySelectorAll('[data-en]').forEach((el) => {
+      if (el.dataset.es === undefined) el.dataset.es = el.textContent;
+      el.textContent = state.lang === 'en' ? el.dataset.en : el.dataset.es;
+    });
+    [['enLabel', 'aria-label'], ['enTitle', 'title']].forEach(([key, attr]) => {
+      document.querySelectorAll(`[data-${key === 'enLabel' ? 'en-label' : 'en-title'}]`).forEach((el) => {
+        const store = key + 'Es';
+        if (el.dataset[store] === undefined) el.dataset[store] = el.getAttribute(attr);
+        el.setAttribute(attr, state.lang === 'en' ? el.dataset[key] : el.dataset[store]);
+      });
+    });
+    $('lang').innerHTML = [['es', 'ES', 'Español'], ['en', 'EN', 'English']].map(([id, short, name]) =>
+      `<button data-act="lang" data-v="${id}" aria-pressed="${state.lang === id}" title="${name}" lang="${id}">${short}</button>`).join('');
+  }
+
+  // El inglés necesita el diccionario de pronunciación: se carga la primera vez.
+  function ensureDict() {
+    if (state.lang !== 'en' || ui.dict === 'ready' || ui.dict === 'loading' || !Voice.supported()) return;
+    ui.dict = 'loading';
+    Voice.loadDict().then(() => {
+      ui.dict = 'ready';
+      renderLetra();
+      renderSong();
+      renderVoice();
+      refreshVoice();
+    }).catch(() => { ui.dict = 'error'; renderVoice(); });
+  }
+
   function render() {
     renderControls();
     renderStrip();
@@ -1140,10 +1188,10 @@
   const TABS = ['chords', 'melody', 'drums', 'letra', 'voice'];
 
   const MUTES = {
-    chords: { prop: 'playChords', name: 'progresión' },
-    melody: { prop: 'playMelody', name: 'melodía' },
-    drums: { prop: 'playDrums', name: 'percusión' },
-    voice: { prop: 'playVoice', name: 'voz' },
+    chords: { prop: 'playChords', name: ['progresión', 'progression'] },
+    melody: { prop: 'playMelody', name: ['melodía', 'melody'] },
+    drums: { prop: 'playDrums', name: ['percusión', 'drums'] },
+    voice: { prop: 'playVoice', name: ['voz', 'voice'] },
   };
   const SPEAKER = '<path fill="currentColor" stroke="none" d="M2 6h3l4-3.5v11L5 10H2z"/>';
   const ICON_ON = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6.3 6.3 0 0 1 0 9"/></svg>`;
@@ -1160,8 +1208,9 @@
       const blocked = t !== 'voice' && browserMuted();
       btn.disabled = blocked;
       btn.setAttribute('aria-pressed', String(off));
-      btn.setAttribute('aria-label', 'Silenciar ' + name);
-      btn.title = blocked ? 'El sonido del navegador está apagado en el menú MIDI' : 'Silenciar ' + name;
+      const label = tx('Silenciar ', 'Mute ') + tx(...name);
+      btn.setAttribute('aria-label', label);
+      btn.title = blocked ? tx('El sonido del navegador está apagado en el menú MIDI', 'Browser sound is turned off in the MIDI menu') : label;
     });
   }
 
@@ -1361,6 +1410,15 @@
       ui.cursor = null;
       save();
       renderLetraGrid();
+    },
+    lang(el) {
+      if (state.lang === el.dataset.v) return;
+      state.lang = el.dataset.v;
+      // Cada idioma con su forma habitual de nombrar las notas.
+      state.notation = state.lang === 'en' ? 'intl' : 'latin';
+      applyLang();
+      update();
+      ensureDict();
     },
     harmony(el) { state.harmony = el.dataset.v; save(); renderVoice(); renderSong(); },
     'harmony-body'(el) { state.harmonyBody = el.dataset.v; save(); renderVoice(); renderSong(); },
@@ -1582,8 +1640,10 @@
   });
 
   startTicker(() => { schedule(); Midi.flush(); });
+  applyLang();
   recompute();
   render();
+  ensureDict();
   applyFx();
   refreshVoice();
   if (state.midiOn && Midi.supported()) connectMidi();
