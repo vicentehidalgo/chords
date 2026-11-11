@@ -413,15 +413,32 @@ main { padding: 12px 20px 16px; }
 
 /* Voz */
 .tab-voice { flex-direction: row; gap: 12px; }
-.lyrics-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
-.lyrics-panel .panel-head { margin-bottom: 0; }
-.lyrics-panel textarea {
-  width: 100%; resize: vertical; min-height: 84px; padding: 10px 12px;
-  font: 18px/1.45 var(--serif); color: var(--ink); background: var(--paper);
+.song-panel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.song-panel .panel-head { margin-bottom: 0; }
+.song-panel .help { margin: 0; }
+.song-stanza + .song-stanza { margin-top: 12px; }
+.song-stanza h3 { margin: 0 0 6px; }
+button.link.inline { padding: 0; font: inherit; }
+.letra-head { flex: none; display: flex; flex-direction: column; gap: 6px; }
+.letra-head .panel-head { margin-bottom: 0; }
+.letra-head textarea {
+  width: 100%; resize: vertical; min-height: 52px; padding: 8px 12px;
+  font: 18px/1.4 var(--serif); color: var(--ink); background: var(--paper);
   border: 1px solid var(--line); border-radius: 8px;
 }
-.lyrics-panel textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-.lyrics-panel .help { margin: 0; }
+.letra-head textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.letra-head .help { margin: 0; }
+.stanza-chip.is-playing:not([aria-pressed="true"]) { box-shadow: inset 0 -3px 0 var(--accent); }
+.mel-grid.has-lyrics { grid-template-rows: 22px 26px; min-height: calc(48px + var(--rows) * 16px); }
+.lyr-label { font-family: var(--sans); font-size: 11px; color: var(--ink-2); cursor: default; }
+.lyr-cell {
+  display: flex; align-items: center; padding: 0 4px; overflow: hidden; white-space: nowrap;
+  font: 600 14px var(--serif); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.lyr-cell.bar { border-left: 2px solid var(--ink-2); }
+.lyr-cell.is-empty { color: var(--ink-2); font-weight: 400; }
+.lyr-cell.is-now { background: var(--accent); color: var(--on-accent); }
+.letra-grid .va-warn { margin: 6px 0 0; }
 .voice-status {
   --p: 0; position: relative; overflow: hidden; font: 13px var(--sans); color: var(--ink-2);
   padding: 3px 10px; border: 1px solid var(--line); border-radius: 99px; font-variant-numeric: tabular-nums;

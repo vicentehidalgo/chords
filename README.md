@@ -17,7 +17,7 @@ con 29 escalas y modos. No necesita instalación: abre `index.html` en el navega
 
 ## Atajos
 
-- `Tab`: pasa a la pestaña siguiente (Progresión, Melodía, Percusión, Voz). `Mayús+Tab` recorre los controles.
+- `Tab`: pasa a la pestaña siguiente (Progresión, Melodía, Percusión, Letra, Voz). `Mayús+Tab` recorre los controles.
 - `Espacio`: reproduce o para. `Cmd/Ctrl+Z`: deshace.
 
 ## MIDI
@@ -29,9 +29,14 @@ no tiene Web MIDI.
 
 ## Voz
 
-La pestaña Voz canta una letra sobre la melodía de la pestaña Melodía, una sílaba por
-nota. «-» alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba
-(`de_amor`) y la puntuación marca dónde respirar. Sigue sola la tonalidad, el tempo y el
+En la pestaña Letra se escribe lo que canta la voz: la letra y su propia melodía, en una
+rejilla como la de Melodía pero independiente de ella. Se pueden tener varias estrofas;
+cada una suena en una vuelta de la progresión, una tras otra. Una sílaba por nota: «-»
+alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba (`de_amor`) y
+la puntuación marca dónde respirar. «Ajustar a la letra» propone una melodía con una nota
+por sílaba y cada frase en compases enteros.
+
+La pestaña Voz muestra la canción entera y el timbre. Sigue sola la tonalidad, el tempo y el
 swing de la canción, y ajusta el vibrato al pulso. A mano se eligen el cuerpo (hombre,
 mujer o niño), el acento (España o Latinoamérica), la octava, el vibrato, el aire, el
 brillo y el volumen.

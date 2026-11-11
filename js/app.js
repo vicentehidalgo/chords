@@ -18,7 +18,7 @@
     sendChords: true, sendMelody: true, sendDrums: true,
     midiChordCh: 1, midiMelodyCh: 2, midiDrumCh: 10, localSound: true,
     rings: [], life: 0, playDrums: true,
-    lyrics: '', voiceBody: 'female', accent: 'es', octave: 'auto',
+    stanza: 0, voiceBody: 'female', accent: 'es', octave: 'auto',
     vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true,
     prog: [],
   };
@@ -32,6 +32,14 @@
     state.sendMelody = state.midiSend !== 'chords';
     delete state.midiSend;
   }
+
+  // La letra pasó a estar por estrofas, cada una con su melodía para la voz.
+  // Antes la voz cantaba la melodía instrumental: se copia para no perder nada.
+  if (!Array.isArray(state.stanzas) || !state.stanzas.length) {
+    state.stanzas = [{ lyrics: state.lyrics || '' }];
+    if (state.lyrics) state.prog.forEach((it) => { if (!it.vmel) it.vmel = [it.mel.slice()]; });
+  }
+  delete state.lyrics;
 
   // Estado que no se guarda.
   const ui = {
@@ -52,7 +60,7 @@
   }
 
   function snapshot() {
-    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings }));
+    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings, stanzas: state.stanzas, stanza: state.stanza }));
     if (ui.undo.length > 60) ui.undo.shift();
   }
 
@@ -416,22 +424,42 @@
 
   // Editor de melodía ----------------------------------------------------------
 
-  function renderMelody() {
-    const el = $('melody');
-    const scroller = el.querySelector('.mel-scroll');
-    const left = scroller ? scroller.scrollLeft : 0;
+  function legendHTML() {
+    return `<div class="mel-legend">
+          <span class="r-chord"><i></i>Del acorde: reposo</span>
+          <span class="r-tension"><i></i>De la escala: movimiento</span>
+          <span class="r-avoid"><i></i>Choca: úsala de paso</span>
+          <span class="r-out"><i></i>Fuera de escala</span>
+        </div>`;
+  }
 
-    if (!chords.length) {
-      el.innerHTML = `<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir una melodía sobre ella.</p>`;
-      return;
-    }
-
+  // Rejilla de notas. track 'm': melodía instrumental; 'v': la voz en la estrofa
+  // actual, con una fila encima para las sílabas (lyrics: notas con su sílaba).
+  function gridHTML(track, lyrics = null) {
     const list = M.rows(key, chords);
     const steps = chords.length * M.STEPS;
-    const hint = melodyHints(list);
+    const hint = melodyHints(list, track);
+    const melOf = track === 'v' ? ((bars) => (i) => bars[i])(vmelOf(state.stanza)) : (i) => state.prog[i].mel;
 
     const head = chords.map((c, i) =>
       `<button class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" data-act="select" data-i="${i}" style="grid-column:span ${M.STEPS}" aria-label="Ver notas sobre ${chordLabel(c)}">${nameHTML(c)}</button>`).join('');
+
+    let lyricRow = '';
+    if (lyrics) {
+      const at = new Map(lyrics.map((p) => [p.i * M.STEPS + p.s, p]));
+      lyricRow = '<div class="mel-label lyr-label">Letra</div>';
+      for (let g = 0; g < steps; ) {
+        const p = at.get(g);
+        const bar = g % M.STEPS === 0 ? ' bar' : '';
+        if (p) {
+          lyricRow += `<div class="lyr-cell${bar}${p.syl ? '' : ' is-empty'}" data-vn="${state.stanza}:${p.i}:${p.s}" style="grid-column:span ${p.len}">${p.syl ? p.syl.text : '·'}</div>`;
+          g += p.len;
+        } else {
+          lyricRow += `<div class="lyr-cell${bar} is-gap"></div>`;
+          g += 1;
+        }
+      }
+    }
 
     const rowsHTML = list.map((off) => {
       const pc = mod(key.pc + off);
@@ -439,7 +467,7 @@
       const cells = [];
       chords.forEach((c, i) => {
         const r = M.role(pc, c, key);
-        const mel = state.prog[i].mel.map((x) => (x === null ? null : M.snap(x, list)));
+        const mel = melOf(i).map((x) => (x === null ? null : M.snap(x, list)));
         let held = false;
         for (let s = 0; s < M.STEPS; s++) {
           const on = mel[s] === off;
@@ -450,61 +478,68 @@
           if (s % 2 === 0) cls.push('beat');
           if (s === 0) cls.push('bar');
           if (hint && hint.i === i && hint.s === s && hint.offs.includes(off)) cls.push('hint');
-          cells.push(`<div class="${cls.join(' ')}" data-cell="${i}:${s}:${off}"></div>`);
+          cells.push(`<div class="${cls.join(' ')}" data-cell="${track}:${i}:${s}:${off}"></div>`);
         }
       });
       const label = pcLabel(pc);
       return `<div class="mel-label ${pc === key.pc ? 'is-tonic' : ''} ${isScale ? '' : 'is-chroma'}" data-note="${off}">${label}</div>${cells.join('')}`;
     }).join('');
 
+    return `<div class="mel-grid ${lyrics ? 'has-lyrics' : ''}" data-track="${track}" style="--cols:${steps};--rows:${list.length}">
+          <div class="mel-corner"></div>${head}${lyricRow}${rowsHTML}
+          <div class="playhead" hidden></div>
+        </div>`;
+  }
+
+  function renderMelody() {
+    const el = $('melody');
+    const scroller = el.querySelector('.mel-scroll');
+    const left = scroller ? scroller.scrollLeft : 0;
+
+    if (!chords.length) {
+      el.innerHTML = `<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir una melodía sobre ella.</p>`;
+      return;
+    }
+
     el.innerHTML = `
       <div class="panel-head">
-        <div class="mel-legend">
-          <span class="r-chord"><i></i>Del acorde: reposo</span>
-          <span class="r-tension"><i></i>De la escala: movimiento</span>
-          <span class="r-avoid"><i></i>Choca: úsala de paso</span>
-          <span class="r-out"><i></i>Fuera de escala</span>
-        </div>
+        ${legendHTML()}
         <div class="row">
           <button class="primary" data-act="mel-generate">Proponer melodía</button>
           <button data-act="mel-clear">Borrar melodía</button>
         </div>
       </div>
-      <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar.</p>
-      <div class="mel-scroll">
-        <div class="mel-grid" style="--cols:${steps};--rows:${list.length}">
-          <div class="mel-corner"></div>${head}${rowsHTML}
-          <div class="playhead" hidden></div>
-        </div>
-      </div>`;
+      <p class="muted help">Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar. La voz tiene su propia melodía, en la pestaña Letra.</p>
+      <div class="mel-scroll">${gridHTML('m')}</div>`;
     el.querySelector('.mel-scroll').scrollLeft = left;
   }
 
-  // Tras la última nota escrita, sugiere continuaciones en el paso siguiente.
-  function melodyHints(list) {
-    if (!ui.cursor) return null;
+  function melodyHints(list, track) {
+    if (!ui.cursor || ui.cursor.track !== track) return null;
     let { i, s } = ui.cursor;
-    const item = state.prog[i];
-    if (!item || item.mel[s] === null || item.mel[s] === undefined) return null;
-    const prev = M.snap(item.mel[s], list);
+    if (!state.prog[i]) return null;
+    const cur = track === 'v' ? vmelOf(state.stanza)[i][s] : state.prog[i].mel[s];
+    if (cur === null || cur === undefined) return null;
+    const prev = M.snap(cur, list);
     s += 1;
     if (s >= M.STEPS) { s = 0; i += 1; }
     if (i >= chords.length) return null;
     return { i, s, offs: M.hints(prev, chords[i], key, list, s % 4 === 0) };
   }
 
-  function toggleCell(i, s, off) {
+  function toggleCell(track, i, s, off) {
     snapshot();
-    const mel = state.prog[i].mel;
+    const mel = track === 'v' ? vmelW(i, state.stanza) : state.prog[i].mel;
     if (mel[s] === off) {
       mel[s] = null;
       ui.cursor = null;
     } else {
       mel[s] = off;
-      ui.cursor = { i, s };
+      ui.cursor = { track, i, s };
       emitNote(M.midiOf(off, key));
     }
     save();
+    if (track === 'v') { renderLetraGrid(); return; }
     if (ui.sel !== i) {
       // El mapa de notas sigue al acorde sobre el que estás escribiendo.
       ui.sel = i;
@@ -765,16 +800,34 @@
   // Voz ------------------------------------------------------------------------
 
   const midiLabel = (m) => pcLabel(mod(m)) + (Math.floor(m / 12) - 1);
+  const EMPTY_BAR = Object.freeze(Array(M.STEPS).fill(null));
+  const MAX_STANZAS = 8;
 
-  // Qué canta la voz: las notas de la melodía (en la octava de la voz) con la letra repartida.
+  // La voz tiene su propia melodía, una por estrofa, guardada en cada compás
+  // (it.vmel[k]) para que siga a los acordes si se quitan o se mueven.
+  const vmelOf = (k) => state.prog.slice(0, chords.length).map((it) => (it.vmel && it.vmel[k]) || EMPTY_BAR);
+  function vmelW(i, k) {
+    const it = state.prog[i];
+    if (!it.vmel) it.vmel = [];
+    while (it.vmel.length <= k) it.vmel.push(Array(M.STEPS).fill(null));
+    return it.vmel[k];
+  }
+  const syllsOf = (k) => Spanish.syllables((state.stanzas[k] || {}).lyrics || '', { seseo: state.accent === 'latam' });
+  const stanzaCount = () => state.stanzas.length;
+
+  // Qué canta la voz: cada estrofa sobre una vuelta de la progresión, con su letra.
   function voicePlan() {
-    const sylls = Spanish.syllables(state.lyrics, { seseo: state.accent === 'latam' });
     const list = chords.length ? M.rows(key, chords) : [];
-    const notes = Voice.notesOf(state.prog.slice(0, chords.length));
-    notes.forEach((n) => { n.off = M.snap(n.off, list); n.midi = M.midiOf(n.off, key); });
-    const oct = state.octave === 'auto' ? Voice.autoOctave(notes.map((n) => n.midi), state.voiceBody) : Number(state.octave);
-    notes.forEach((n) => { n.midi += 12 * oct; });
-    return { sylls, oct, ...Voice.align(notes, sylls) };
+    const parts = state.stanzas.map((st, k) => {
+      const notes = Voice.notesOf(vmelOf(k), k * chords.length);
+      notes.forEach((n) => { n.off = M.snap(n.off, list); n.midi = M.midiOf(n.off, key); });
+      return { k, notes, sylls: syllsOf(k) };
+    });
+    const all = parts.flatMap((p) => p.notes);
+    const oct = state.octave === 'auto' ? Voice.autoOctave(all.map((n) => n.midi), state.voiceBody) : Number(state.octave);
+    all.forEach((n) => { n.midi += 12 * oct; });
+    const stanzas = parts.map((p) => ({ k: p.k, sylls: p.sylls, ...Voice.align(p.notes, p.sylls) }));
+    return { oct, stanzas, pairs: stanzas.flatMap((st) => st.pairs) };
   }
 
   function voiceRequest(plan) {
@@ -839,75 +892,112 @@
     if (ui.playing) ui.playing.voices.forEach((v) => v.gain(voiceLevel()));
   }
 
-  function markVoiceNote(i, s) {
-    document.querySelectorAll('.va-note.is-now').forEach((el) => el.classList.remove('is-now'));
-    const el = document.querySelector(`.va-note[data-vn="${i}:${s}"]`);
-    if (el) el.classList.add('is-now');
+  function markVoiceNote(k, i, s) {
+    document.querySelectorAll('.va-note.is-now, .lyr-cell.is-now').forEach((el) => el.classList.remove('is-now'));
+    document.querySelectorAll(`.va-note[data-vn="${k}:${i}:${s}"], .lyr-cell[data-vn="${k}:${i}:${s}"]`)
+      .forEach((el) => el.classList.add('is-now'));
   }
 
   function renderVoiceStatus() {
-    const el = $('voice-status');
-    if (!el) return;
     const v = ui.voice;
-    if (!Voice.supported()) { el.textContent = 'Este navegador no puede ejecutar el motor de voz'; el.className = 'voice-status is-error'; return; }
-    const text = {
+    const text = !Voice.supported() ? 'Este navegador no puede ejecutar el motor de voz' : {
       idle: 'Escribe la letra para oírla',
       rendering: `Cantando… ${Math.round(v.progress * 100)}%`,
-      ready: 'Lista: pulsa Reproducir',
+      ready: 'Voz lista',
       error: 'No se pudo cantar: ' + v.error,
     }[v.status];
-    el.textContent = text;
-    el.className = 'voice-status is-' + v.status;
-    el.style.setProperty('--p', v.status === 'rendering' ? v.progress : v.status === 'ready' ? 1 : 0);
+    document.querySelectorAll('.voice-status').forEach((el) => {
+      el.textContent = text;
+      el.className = 'voice-status is-' + (Voice.supported() ? v.status : 'error');
+      el.style.setProperty('--p', v.status === 'rendering' ? v.progress : v.status === 'ready' ? 1 : 0);
+    });
   }
 
-  function renderLyrics() {
-    const el = $('lyrics');
-    if (!el.querySelector('textarea')) {
-      el.innerHTML = `
-        <div class="panel-head">
-          <h2>Letra</h2>
-          <span class="voice-status" id="voice-status" role="status"></span>
-        </div>
-        <textarea id="c-lyrics" rows="4" spellcheck="true" lang="es" placeholder="Escribe aquí la letra. Por ejemplo:&#10;Cielito lindo, los ojos negros"></textarea>
-        <p class="muted help">Una sílaba por nota de la melodía. «-» alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba (de_amor) y la puntuación o el salto de línea marcan dónde respirar.</p>
-        <div class="voice-align" id="voice-align"></div>`;
-      const ta = $('c-lyrics');
-      ta.oninput = () => { state.lyrics = ta.value; save(); renderAlign(); };
+  // Pestaña Letra: estrofas, su texto y la melodía que canta la voz.
+  function renderLetra() {
+    const head = $('letra-head');
+    if (!chords.length) {
+      head.innerHTML = '<p class="muted">Crea una progresión en la pestaña Progresión y aquí podrás escribir la letra y la melodía que canta la voz.</p>';
+      $('letra-grid').innerHTML = '';
+      return;
     }
+    state.stanza = Math.min(Math.max(0, state.stanza), stanzaCount() - 1);
+    const chips = state.stanzas.map((st, k) =>
+      `<button class="stanza-chip" data-act="stanza" data-v="${k}" data-k="${k}" aria-pressed="${k === state.stanza}">Estrofa ${k + 1}</button>`).join('');
+    head.innerHTML = `
+      <div class="panel-head">
+        <div class="row">
+          <div class="seg" role="group" aria-label="Estrofas">${chips}</div>
+          <button data-act="stanza-add" ${stanzaCount() >= MAX_STANZAS ? 'disabled' : ''} title="Empieza con la melodía de la estrofa actual">+ Estrofa</button>
+          ${stanzaCount() > 1 ? `<button data-act="stanza-remove" title="Quitar la estrofa ${state.stanza + 1}">Quitar</button>` : ''}
+        </div>
+        <span class="voice-status" role="status"></span>
+      </div>
+      <textarea id="c-lyrics" rows="2" spellcheck="true" lang="es" aria-label="Letra de la estrofa ${state.stanza + 1}" placeholder="Letra de la estrofa ${state.stanza + 1}. Por ejemplo: Cielito lindo, los ojos negros"></textarea>
+      <p class="muted help">Cada estrofa suena en una vuelta de la progresión. Una sílaba por nota: «-» alarga la anterior, «_» une dos palabras (de_amor) y la puntuación marca dónde respirar.</p>`;
     const ta = $('c-lyrics');
-    if (ta.value !== state.lyrics) ta.value = state.lyrics;
-    renderAlign();
+    ta.value = state.stanzas[state.stanza].lyrics;
+    ta.oninput = () => { state.stanzas[state.stanza].lyrics = ta.value; save(); renderLetraGrid(); };
+    renderLetraGrid();
     renderVoiceStatus();
   }
 
-  function renderAlign() {
-    const el = $('voice-align');
-    if (!el) return;
-    if (!chords.length) {
-      el.innerHTML = '<p class="muted">La voz canta la melodía de la pestaña Melodía. Crea primero una progresión.</p>';
-      return;
-    }
-    const plan = voicePlan();
-    if (!plan.pairs.length) {
-      el.innerHTML = `<div class="empty"><p>La voz canta las notas de la pestaña Melodía, y aún está vacía.</p>
-        <div class="chips"><button class="primary" data-act="mel-generate">Proponer melodía</button></div></div>`;
-      return;
-    }
+  function renderLetraGrid() {
+    const el = $('letra-grid');
+    if (!chords.length) return;
+    const scroller = el.querySelector('.mel-scroll');
+    const left = scroller ? scroller.scrollLeft : 0;
+    const k = state.stanza;
+    const sylls = syllsOf(k);
+    const al = Voice.align(Voice.notesOf(vmelOf(k)), sylls);
+    let warn = '';
+    if (al.extraSyllables.length) warn = `<p class="va-warn">Sobran ${al.extraSyllables.length} sílabas sin nota: «${al.extraSyllables.map((x) => x.text).join(' ')}». Añade notas o pulsa «Ajustar a la letra».</p>`;
+    else if (al.extraNotes && sylls.length) warn = `<p class="va-warn is-soft">${al.extraNotes} notas sin letra: la voz calla en ellas.</p>`;
+    el.innerHTML = `
+      <div class="panel-head">
+        ${legendHTML()}
+        <div class="row">
+          <button class="primary" data-act="vmel-generate" title="Una nota por sílaba, con las frases en compases enteros">${sylls.length ? 'Ajustar a la letra' : 'Proponer melodía'}</button>
+          <button data-act="vmel-copy" title="Copia aquí la melodía de la pestaña Melodía">Copiar de Melodía</button>
+          <button data-act="vmel-clear">Borrar</button>
+        </div>
+      </div>
+      <div class="mel-scroll">${gridHTML('v', al.pairs)}</div>${warn}`;
+    el.querySelector('.mel-scroll').scrollLeft = left;
+  }
+
+  function alignBars(pairs, k) {
     const byBar = chords.map(() => []);
-    plan.pairs.forEach((p) => byBar[p.i].push(p));
-    const bars = chords.map((c, i) => `<div class="va-bar fn-${c.fn}">
+    pairs.forEach((p) => { if (byBar[p.i]) byBar[p.i].push(p); }); // p.i: compás dentro de la estrofa
+    return chords.map((c, i) => `<div class="va-bar fn-${c.fn}">
         <span class="va-chord">${nameHTML(c)}</span>
-        <div class="va-notes">${byBar[i].map((p) => `<span class="va-note ${p.syl ? '' : 'is-empty'}" data-vn="${p.i}:${p.s}" style="flex-grow:${p.len}">
+        <div class="va-notes">${byBar[i].map((p) => `<span class="va-note ${p.syl ? '' : 'is-empty'}" data-vn="${k}:${i}:${p.s}">
           <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}</small></span>`).join('') || '<span class="va-rest">silencio</span>'}</div>
       </div>`).join('');
-    let foot = '';
-    if (plan.extraSyllables.length) {
-      foot = `<p class="va-warn">Sobran ${plan.extraSyllables.length} sílabas sin nota: «${plan.extraSyllables.map((s) => s.text).join(' ')}». Añade notas en Melodía o usa «_» para unir palabras.</p>`;
-    } else if (plan.extraNotes && plan.sylls.length) {
-      foot = `<p class="va-warn is-soft">${plan.extraNotes} notas sin letra: la voz calla en ellas.</p>`;
+  }
+
+  // Pestaña Voz, a la izquierda: la canción entera tal como la cantará.
+  function renderSong() {
+    const el = $('song');
+    let body;
+    if (!chords.length) body = '<p class="muted">Crea primero una progresión.</p>';
+    else {
+      const plan = voicePlan();
+      body = plan.stanzas.map((st) => {
+        let warn = '';
+        if (st.extraSyllables.length) warn = `<p class="va-warn">Sobran ${st.extraSyllables.length} sílabas sin nota.</p>`;
+        const empty = !st.pairs.length ? '<p class="muted">Sin melodía todavía.</p>' : `<div class="va-bars">${alignBars(st.pairs, st.k)}</div>`;
+        return `<div class="song-stanza"><h3>Estrofa ${st.k + 1}</h3>${empty}${warn}</div>`;
+      }).join('');
     }
-    el.innerHTML = `<div class="va-bars">${bars}</div>${foot}`;
+    el.innerHTML = `
+      <div class="panel-head">
+        <h2>Canción</h2>
+        <span class="voice-status" role="status"></span>
+      </div>
+      <p class="muted help">La letra y su melodía se escriben en la pestaña <button class="link inline" data-act="tab" data-v="letra">Letra</button>. Aquí se ve lo que cantará la voz, estrofa a estrofa.</p>
+      <div class="voice-align">${body}</div>`;
+    renderVoiceStatus();
   }
 
   function renderVoice() {
@@ -933,7 +1023,8 @@
       <div class="vauto">
         <h3>Sigue a la canción</h3>
         <ul>
-          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la melodía.</li>
+          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la pestaña Letra.</li>
+          <li><b>Estrofas</b>: ${stanzaCount()}, cada una en una vuelta de la progresión.</li>
           <li><b>Tempo</b> ${state.bpm} ppm: cada sílaba dura su nota y las consonantes entran antes del pulso.</li>
           <li><b>Swing</b> ${swingLabel()}: retrasa las corcheas a contratiempo igual que el resto.</li>
           <li><b>Vibrato</b> a ${vib.rate.toFixed(1).replace('.', ',')} Hz, ${vib.per} ondas por pulso, solo en las notas largas.</li>
@@ -970,12 +1061,13 @@
     renderPresets();
     renderWheel();
     renderRings();
-    renderLyrics();
+    renderLetra();
+    renderSong();
     renderVoice();
     applyTab();
   }
 
-  const TABS = ['chords', 'melody', 'drums', 'voice'];
+  const TABS = ['chords', 'melody', 'drums', 'letra', 'voice'];
 
   const MUTES = {
     chords: { prop: 'playChords', name: 'progresión' },
@@ -989,8 +1081,9 @@
 
   function renderMutes() {
     TABS.forEach((t) => {
-      const { prop, name } = MUTES[t];
       const btn = $('mute-' + t);
+      if (!btn) return;
+      const { prop, name } = MUTES[t];
       const off = !state[prop];
       btn.innerHTML = off ? ICON_OFF : ICON_ON;
       // La voz no va por MIDI: suena en el navegador aunque el resto no.
@@ -1012,7 +1105,8 @@
   function setTab(tab) {
     state.tab = tab;
     // La voz depende de todo lo demás: al entrar se pone al día.
-    if (tab === 'voice') { renderAlign(); renderVoice(); }
+    if (tab === 'voice') { renderSong(); renderVoice(); }
+    if (tab === 'letra') renderLetra();
     save();
     applyTab();
   }
@@ -1095,6 +1189,7 @@
       state.prog = snap.prog;
       ui.sel = snap.sel;
       state.rings = snap.rings;
+      if (snap.stanzas) { state.stanzas = snap.stanzas; state.stanza = snap.stanza || 0; }
       ui.cursor = null;
       update();
     },
@@ -1149,10 +1244,58 @@
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMutes(); },
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
+    stanza(el) { state.stanza = Number(el.dataset.v); ui.cursor = null; save(); renderLetra(); },
+    'stanza-add'() {
+      snapshot();
+      const from = state.stanza;
+      state.stanzas.push({ lyrics: '' });
+      const k = state.stanzas.length - 1;
+      // Una estrofa nueva suele repetir la melodía con otra letra: se copia.
+      state.prog.forEach((it, i) => { vmelW(i, k).splice(0, M.STEPS, ...((it.vmel && it.vmel[from]) || EMPTY_BAR)); });
+      state.stanza = k;
+      save();
+      renderLetra();
+      $('c-lyrics').focus();
+    },
+    'stanza-remove'() {
+      if (stanzaCount() < 2) return;
+      snapshot();
+      const k = state.stanza;
+      state.stanzas.splice(k, 1);
+      state.prog.forEach((it) => { if (it.vmel) it.vmel.splice(k, 1); });
+      state.stanza = Math.max(0, k - 1);
+      save();
+      renderLetra();
+    },
+    'vmel-generate'() {
+      snapshot();
+      ui.seed += 1;
+      const k = state.stanza;
+      const sylls = syllsOf(k);
+      const rhythm = sylls.length ? Voice.rhythm(sylls, chords.length) : null;
+      M.generate(chords, key, M.seeded(ui.seed * 7919), rhythm).forEach((bar, i) => { vmelW(i, k).splice(0, M.STEPS, ...bar); });
+      ui.cursor = null;
+      save();
+      renderLetraGrid();
+    },
+    'vmel-copy'() {
+      snapshot();
+      state.prog.forEach((it, i) => { vmelW(i, state.stanza).splice(0, M.STEPS, ...it.mel); });
+      ui.cursor = null;
+      save();
+      renderLetraGrid();
+    },
+    'vmel-clear'() {
+      snapshot();
+      state.prog.forEach((it, i) => { vmelW(i, state.stanza).fill(null); });
+      ui.cursor = null;
+      save();
+      renderLetraGrid();
+    },
     'toggle-voice'() { state.playVoice = !state.playVoice; save(); renderMutes(); voiceGain(); },
-    'voice-body'(el) { state.voiceBody = el.dataset.v; save(); renderVoice(); renderAlign(); },
-    accent(el) { state.accent = el.dataset.v; save(); renderVoice(); renderAlign(); },
-    octave(el) { state.octave = el.dataset.v; save(); renderVoice(); renderAlign(); },
+    'voice-body'(el) { state.voiceBody = el.dataset.v; save(); renderVoice(); renderSong(); },
+    accent(el) { state.accent = el.dataset.v; save(); renderVoice(); renderSong(); },
+    octave(el) { state.octave = el.dataset.v; save(); renderVoice(); renderSong(); },
     'mel-generate'() {
       snapshot();
       ui.seed += 1;
@@ -1161,7 +1304,7 @@
       save();
       renderMelody();
       renderStrip();
-      renderAlign();
+      renderSong();
       renderVoice();
     },
     'mel-clear'() {
@@ -1171,7 +1314,7 @@
       save();
       renderMelody();
       renderStrip();
-      renderAlign();
+      renderSong();
       renderVoice();
     },
   };
@@ -1188,19 +1331,22 @@
     return { off: M.snap(off, list), len };
   }
 
-  function movePlayhead(i, s) {
-    const grid = document.querySelector('.mel-grid');
-    const head = document.querySelector('.playhead');
-    if (!grid || !head) return;
-    const label = grid.querySelector('.mel-corner').offsetWidth;
-    const cell = (grid.scrollWidth - label) / (chords.length * M.STEPS);
-    head.hidden = false;
-    head.style.left = label + (i * M.STEPS + s) * cell + 'px';
+  // La rejilla de la voz solo muestra el cursor si la estrofa que suena es la que se ve.
+  function movePlayhead(i, s, pass) {
+    document.querySelectorAll('.mel-grid').forEach((grid) => {
+      const head = grid.querySelector('.playhead');
+      if (!head) return;
+      if (grid.dataset.track === 'v' && pass !== state.stanza) { head.hidden = true; return; }
+      const label = grid.querySelector('.mel-corner').offsetWidth;
+      const cell = (grid.scrollWidth - label) / (chords.length * M.STEPS);
+      head.hidden = false;
+      head.style.left = label + (i * M.STEPS + s) * cell + 'px';
+    });
   }
 
-  function highlight(i) {
+  function highlight(i, pass) {
     document.querySelectorAll('.is-playing').forEach((n) => n.classList.remove('is-playing'));
-    document.querySelectorAll(`.pc[data-i="${i}"], .mel-chord[data-i="${i}"]`)
+    document.querySelectorAll(`.pc[data-i="${i}"], .mel-chord[data-i="${i}"], .stanza-chip[data-k="${pass}"]`)
       .forEach((n) => n.classList.add('is-playing'));
   }
 
@@ -1220,7 +1366,9 @@
       const dur = M.spanMs(s, to, state.swing, stepMs) * .95 / 1000;
       if (v) emitChord(v.midis, dur, .15, at, state.playChords);
     }
-    if (s === 0 && i === Math.max(1, chords.length) - 1 && state.loop) p.voiceAt = at + M.STEPS * stepMs;
+    const pass = p.pass;
+    // La voz se programa una vez por vuelta completa (todas las estrofas).
+    if (s === 0 && i === Math.max(1, chords.length) - 1 && pass >= stanzaCount() - 1 && state.loop) p.voiceAt = at + M.STEPS * stepMs;
     const n = melodyAt(p.list, i, s);
     if (n) {
       const dur = M.spanMs(s, s + n.len, state.swing, stepMs) * .92 / 1000;
@@ -1228,9 +1376,9 @@
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
-      if (s === 0) { highlight(i); p.barSeen = performance.now(); }
-      movePlayhead(i, s);
-      if (n) markVoiceNote(i, s);
+      if (s === 0) { highlight(i, pass); p.barSeen = performance.now(); }
+      movePlayhead(i, s, pass);
+      markVoiceNote(pass, i, s);
     }, Math.max(0, at - performance.now()));
   }
 
@@ -1262,8 +1410,12 @@
         p.s = 0;
         p.i += 1;
         if (p.i >= bars) {
-          if (!state.loop) { p.endAt = p.next; return; }
           p.i = 0;
+          p.pass += 1;
+          if (p.pass >= stanzaCount()) {
+            if (!state.loop) { p.endAt = p.next; return; }
+            p.pass = 0;
+          }
         }
       }
     }
@@ -1274,7 +1426,7 @@
     // Con voz lista se deja margen para que entren sus primeras consonantes.
     const lead = voiceTake() ? Voice.LEAD * 1000 : 0;
     const next = performance.now() + 40 + lead;
-    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next };
+    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next, pass: 0 };
     renderTransport();
     animateHand();
   }
@@ -1284,10 +1436,9 @@
     if (!ui.playing) return;
     if (!natural) ui.playing.voices.forEach((v) => v.stop());
     ui.playing = null;
-    markVoiceNote(-1, -1);
+    markVoiceNote(-1, -1, -1);
     Midi.silence();
-    const head = document.querySelector('.playhead');
-    if (head) head.hidden = true;
+    document.querySelectorAll('.playhead').forEach((h) => { h.hidden = true; });
     highlight(-1);
     renderTransport();
   }
@@ -1310,8 +1461,8 @@
   document.addEventListener('click', (e) => {
     const cell = e.target.closest('[data-cell]');
     if (cell) {
-      const [i, s, off] = cell.dataset.cell.split(':').map(Number);
-      toggleCell(i, s, off);
+      const [track, i, s, off] = cell.dataset.cell.split(':');
+      toggleCell(track, Number(i), Number(s), Number(off));
       return;
     }
     const label = e.target.closest('[data-note]');

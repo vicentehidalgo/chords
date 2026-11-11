@@ -298,7 +298,7 @@ eq(missing, 0, 'cobertura de voicings');
 // Voz: notas, reparto de la letra y petición al motor
 {
   const prog = [{ mel: [0, null, 2, null, null, null, null, null] }, { mel: [null, null, 4, null, null, null, null, 5] }];
-  const notes = Voice.notesOf(prog);
+  const notes = Voice.notesOf(prog.map((b) => b.mel));
   eq(notes.map((n) => [n.g, n.len]), [[0, 2], [2, 6], [10, 5], [15, 1]], 'notas: duran hasta la siguiente o el final del compás');
   notes.forEach((n) => { n.midi = 60 + n.off; });
   const sylls = Spanish.syllables('la lu na');
@@ -314,6 +314,28 @@ eq(missing, 0, 'cobertura de voicings');
   eq(Voice.autoOctave([67, 72, 76], 'male'), -2, 'octava automática: hombre');
   eq(Voice.autoOctave([60, 67], 'female'), 0, 'octava automática: mujer');
   eq(Voice.autoOctave([], 'child'), 0, 'octava sin notas');
+  eq(Voice.notesOf([prog[0].mel], 2).map((n) => n.g), [16, 18], 'notas de una estrofa posterior: desplazadas');
+  // Ritmo para una letra
+  const r1 = Voice.rhythm(Spanish.syllables('a e i, o u a e i o u'), 3);
+  eq(r1, [[0, 2, 4], [0, 2, 4, 6], [0, 2, 4]], 'ritmo: cada frase en sus compases');
+  eq(Voice.rhythm(Spanish.syllables('la la la la la la la la la la'), 1).map((b) => b.length), [8], 'ritmo: como mucho 8 por compás');
+  eq(Voice.rhythm(Spanish.syllables('la la la la la la la la la la'), 2).map((b) => b.length), [5, 5], 'ritmo: reparto parejo');
+  eq(Voice.rhythm([], 3), [[], [], []], 'ritmo sin letra');
+  const total = (r) => r.reduce((a, b) => a + b.length, 0);
+  for (const n of [1, 3, 7, 12, 20, 33]) {
+    const sy = Spanish.syllables(Array(n).fill('la').join(' '));
+    for (const bars of [1, 2, 4, 8]) {
+      const want = Math.min(n, bars * 8);
+      if (total(Voice.rhythm(sy, bars)) !== want) eq(total(Voice.rhythm(sy, bars)), want, `ritmo: ${n} sílabas en ${bars} compases`);
+    }
+  }
+  {
+    const k = Theory.makeKey(0, 'ionian');
+    const cs = Theory.harmonicField(k, 0).slice(0, 4);
+    const rh = Voice.rhythm(Spanish.syllables('cie li to lin do, los o jos'), 4);
+    const gen = Melody.generate(cs, k, Melody.seeded(3), rh);
+    eq(gen.map((bar) => bar.map((x, s) => (x === null ? -1 : s)).filter((s) => s >= 0)), rh, 'generador: respeta el ritmo de la letra');
+  }
   eq([Voice.vibratoRate(90).per, Voice.vibratoRate(60).per], [4, 6], 'vibrato al compás');
   for (let bpm = 50; bpm <= 180; bpm += 2) {
     const r = Voice.vibratoRate(bpm).rate;

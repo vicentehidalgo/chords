@@ -79,7 +79,8 @@
 
   // Dos motivos rítmicos alternados dan cohesión; la línea dibuja un arco que
   // se apoya en notas del acorde en los tiempos fuertes (pasos 0 y 4).
-  function generate(chords, key, rand = Math.random) {
+  // rhythm (opcional): los pasos de cada compás, para ajustar la línea a una letra.
+  function generate(chords, key, rand = Math.random, rhythm = null) {
     const list = rows(key, chords);
     const pick = (a) => a[Math.floor(rand() * a.length)];
     const motifA = pick(MOTIFS);
@@ -96,7 +97,7 @@
     let cur = null;
     return chords.map((chord, i) => {
       const last = i === n - 1;
-      const motif = last ? pick(ENDINGS) : (i % 2 ? motifB : motifA);
+      const motif = rhythm ? rhythm[i] || [] : last ? pick(ENDINGS) : (i % 2 ? motifB : motifA);
       const bar = Array(STEPS).fill(null);
       const safe = chordRows(chord);
 

@@ -13,16 +13,17 @@
     child: { name: 'Niño', mix: { female: 0, child: 1 }, center: 67 },
   };
 
-  // Notas de la melodía en orden. Cada una dura hasta la siguiente o el final del compás.
-  function notesOf(prog) {
+  // Notas de una melodía (un array de 8 pasos por compás), en orden. Cada una dura
+  // hasta la siguiente o el final del compás. offset: compases desde el principio.
+  function notesOf(bars, offset = 0) {
     const out = [];
-    prog.forEach((bar, i) => {
+    bars.forEach((mel, i) => {
       for (let s = 0; s < M.STEPS; s++) {
-        const off = bar.mel[s];
+        const off = mel[s];
         if (off === null || off === undefined) continue;
         let len = 1;
-        while (s + len < M.STEPS && bar.mel[s + len] === null) len++;
-        out.push({ i, s, g: i * M.STEPS + s, len, off });
+        while (s + len < M.STEPS && (mel[s + len] === null || mel[s + len] === undefined)) len++;
+        out.push({ i, s, g: (offset + i) * M.STEPS + s, len, off });
       }
     });
     return out;
@@ -45,6 +46,44 @@
       if (rate >= 4.5 && rate <= 7.5 && (best.per === 0 || Math.abs(rate - 6) < Math.abs(best.rate - 6))) best = { rate, per: k };
     }
     return best;
+  }
+
+  // Ritmo para una letra: cuántas sílabas van en cada compás y en qué pasos.
+  // Cada frase (hasta una respiración) ocupa compases enteros, si caben.
+  const PATTERNS = [[], [0], [0, 4], [0, 2, 4], [0, 2, 4, 6], [0, 2, 3, 4, 6],
+    [0, 1, 2, 4, 5, 6], [0, 1, 2, 3, 4, 6, 7], [0, 1, 2, 3, 4, 5, 6, 7]];
+
+  function rhythm(sylls, bars) {
+    const out = Array.from({ length: bars }, () => []);
+    if (!bars || !sylls.length) return out;
+    const phrases = [];
+    let cur = 0;
+    sylls.forEach((s, k) => { cur++; if (s.phraseEnd || k === sylls.length - 1) { phrases.push(cur); cur = 0; } });
+    const counts = Array(bars).fill(0);
+    const spread = (n, from, to) => {
+      // n sílabas repartidas entre los compases [from, to), sin pasar de 8 por compás.
+      const len = to - from;
+      for (let b = 0; b < len; b++) counts[from + b] += Math.floor(n / len) + (b < n % len ? 1 : 0);
+    };
+    if (phrases.length <= bars) {
+      const total = sylls.length;
+      let at = 0;
+      phrases.forEach((n, k) => {
+        const left = phrases.length - k - 1;
+        let size = k === phrases.length - 1 ? bars - at : Math.max(1, Math.round((n / total) * bars));
+        size = Math.min(size, bars - at - left);
+        spread(n, at, at + size);
+        at += size;
+      });
+    } else spread(sylls.length, 0, bars);
+    // Lo que no quepa en un compás pasa al siguiente.
+    for (let b = 0; b < bars; b++) {
+      if (counts[b] > M.STEPS) {
+        if (b + 1 < bars) counts[b + 1] += counts[b] - M.STEPS;
+        counts[b] = M.STEPS;
+      }
+    }
+    return counts.map((n) => PATTERNS[n].slice());
   }
 
   // Qué sílaba canta cada nota. Sobran sílabas o notas: se informa, no se fuerza.
@@ -166,5 +205,5 @@
     });
   }
 
-  globalThis.Voice = { RATE, LEAD, BODIES, notesOf, autoOctave, vibratoRate, align, request, render, supported };
+  globalThis.Voice = { RATE, LEAD, BODIES, notesOf, rhythm, autoOctave, vibratoRate, align, request, render, supported };
 })();

@@ -35,6 +35,9 @@
         <button class="tab-mute" id="mute-drums" data-act="toggle-drums"></button>
       </span>
       <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-letra" data-act="tab" data-v="letra" aria-controls="tab-letra" aria-keyshortcuts="Tab">Letra</button>
+      </span>
+      <span class="tab-item" role="presentation">
         <button role="tab" id="tab-btn-voice" data-act="tab" data-v="voice" aria-controls="tab-voice" aria-keyshortcuts="Tab">Voz</button>
         <button class="tab-mute" id="mute-voice" data-act="toggle-voice"></button>
       </span>
@@ -66,8 +69,13 @@
       <section class="panel rings-panel" aria-label="Anillos" id="rings"></section>
     </div>
 
+    <div class="tab tab-letra" id="tab-letra" role="tabpanel" aria-labelledby="tab-btn-letra">
+      <section class="panel letra-head" aria-label="Estrofas y letra" id="letra-head"></section>
+      <section class="panel melody letra-grid" aria-label="Melodía de la voz" id="letra-grid"></section>
+    </div>
+
     <div class="tab tab-voice" id="tab-voice" role="tabpanel" aria-labelledby="tab-btn-voice">
-      <section class="panel lyrics-panel" aria-label="Letra" id="lyrics"></section>
+      <section class="panel song-panel" aria-label="Canción" id="song"></section>
       <section class="panel voice-panel" aria-label="Voz" id="voice"></section>
     </div>
   </main>
