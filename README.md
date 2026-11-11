@@ -36,7 +36,14 @@ alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba 
 la puntuación marca dónde respirar. «Ajustar a la letra» propone una melodía con una nota
 por sílaba y cada frase en compases enteros.
 
-La pestaña Voz muestra la canción entera y el timbre. Sigue sola la tonalidad, el tempo y el
+La pestaña Voz muestra la canción entera y el sonido:
+
+- **Fuerza**: la presión del aire, que sube el volumen y empuja la voz. Cada estrofa puede
+  ir suave, normal o fuerte (se elige en Letra).
+- **Segunda voz**: una armonía automática dentro de la escala (3ª arriba, 3ª abajo o 6ª
+  abajo), con su propio cuerpo y volumen. En Letra se elige en qué estrofas canta.
+- **Sala**: reverberación y un eco que cae a tempo (a la corchea, a la corchea con
+  puntillo o a la negra) y se reajusta al cambiar el tempo. Sigue sola la tonalidad, el tempo y el
 swing de la canción, y ajusta el vibrato al pulso. A mano se eligen el cuerpo (hombre,
 mujer o niño), el acento (España o Latinoamérica), la octava, el vibrato, el aire, el
 brillo y el volumen.

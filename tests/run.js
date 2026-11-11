@@ -336,6 +336,27 @@ eq(missing, 0, 'cobertura de voicings');
     const gen = Melody.generate(cs, k, Melody.seeded(3), rh);
     eq(gen.map((bar) => bar.map((x, s) => (x === null ? -1 : s)).filter((s) => s >= 0)), rh, 'generador: respeta el ritmo de la letra');
   }
+  // Segunda voz y fuerza
+  {
+    const C = Theory.makeKey(0, 'ionian');
+    const Am = Theory.makeKey(9, 'aeolian');
+    eq([0, 2, 4, 5, 7, 9, 11].map((o) => Voice.harmonize(o, C, 'above3')), [4, 5, 7, 9, 11, 12, 14], 'terceras arriba en Do mayor');
+    eq([0, 4, 7].map((o) => Voice.harmonize(o, C, 'below3')), [-3, 0, 4], 'terceras abajo');
+    eq([0, 4, 7].map((o) => Voice.harmonize(o, C, 'below6')), [-8, -5, -1], 'sextas abajo');
+    eq(Voice.harmonize(0, Am, 'above3'), 3, 'en La menor la tercera de la tónica es menor');
+    eq(Voice.harmonize(1, C, 'above3'), 5, 'una nota cromática conserva su alteración');
+    eq([Voice.pressureFor(55), Voice.pressureFor(55, 'f') > Voice.pressureFor(55), Voice.pressureFor(55, 'p') < Voice.pressureFor(55)], [8.95, true, true], 'fuerza y su intensidad por estrofa');
+    eq([Voice.pressureFor(0, 'p'), Voice.pressureFor(100, 'f')], [3.5, 14], 'fuerza acotada');
+    const pairs2 = al.pairs.map((p) => ({ ...p, harmonyMidi: p.syl ? p.midi + 4 : null }));
+    const r2 = Voice.request({ pairs: pairs2, bpm: 120, swing: 50, body: 'female', vibrato: 30, breath: .1, bright: .2, force: 55,
+      stanzas: [{ bars: 1, dyn: 'p' }, { bars: 1, dyn: 'f' }], harmony: { body: 'male' } });
+    eq(r2.source.pressure, Voice.pressureFor(55, 'p'), 'la primera estrofa fija la fuerza inicial');
+    eq(r2.events, [{ t: Voice.LEAD - 0.2 + 2, source: { pressure: Voice.pressureFor(55, 'f') } }], 'la segunda estrofa cambia la fuerza antes de su compás');
+    eq([r2.harmony.body, r2.harmony.notes.map((n) => [n.midi, n.syl ? n.syl.text : null])],
+      [{ female: 0, child: 0 }, [[64, 'la'], [66, 'lu'], [0, null], [68, 'na'], [0, null]]], 'segunda voz: mismas sílabas y tiempos, otras notas');
+    const noHarm = Voice.request({ pairs: al.pairs, bpm: 120, swing: 50, body: 'female', vibrato: 30, breath: .1, bright: .2, harmony: { body: 'male' } });
+    eq('harmony' in noHarm, false, 'sin notas de segunda voz no se pide');
+  }
   eq([Voice.vibratoRate(90).per, Voice.vibratoRate(60).per], [4, 6], 'vibrato al compás');
   for (let bpm = 50; bpm <= 180; bpm += 2) {
     const r = Voice.vibratoRate(bpm).rate;

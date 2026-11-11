@@ -19,7 +19,8 @@
     midiChordCh: 1, midiMelodyCh: 2, midiDrumCh: 10, localSound: true,
     rings: [], life: 0, playDrums: true,
     stanza: 0, voiceBody: 'female', accent: 'es', octave: 'auto',
-    vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true,
+    vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true, force: 55,
+    harmony: 'off', harmonyBody: 'male', harmonyVol: 70, reverb: 25, echo: 0, echoTime: 'dotted',
     prog: [],
   };
   const state = { ...DEFAULTS };
@@ -229,6 +230,7 @@
       state.bpm = Number(e.target.value);
       e.target.parentElement.firstChild.textContent = state.bpm + ' ppm ';
       save();
+      applyFx();
       if (state.tab === 'voice') renderVoice();
     };
     $('c-swing').oninput = (e) => {
@@ -440,6 +442,8 @@
     const steps = chords.length * M.STEPS;
     const hint = melodyHints(list, track);
     const melOf = track === 'v' ? ((bars) => (i) => bars[i])(vmelOf(state.stanza)) : (i) => state.prog[i].mel;
+    // En la voz, la segunda voz se dibuja como notas fantasma.
+    const showHarm = track === 'v' && state.harmony !== 'off' && state.stanzas[state.stanza].harmony !== false;
 
     const head = chords.map((c, i) =>
       `<button class="mel-chord fn-${c.fn} ${i === ui.sel ? 'is-sel' : ''}" data-act="select" data-i="${i}" style="grid-column:span ${M.STEPS}" aria-label="Ver notas sobre ${chordLabel(c)}">${nameHTML(c)}</button>`).join('');
@@ -468,13 +472,21 @@
       chords.forEach((c, i) => {
         const r = M.role(pc, c, key);
         const mel = melOf(i).map((x) => (x === null ? null : M.snap(x, list)));
+        const hm = showHarm ? mel.map((x) => (x === null ? null : Voice.harmonize(x, key, state.harmony))) : null;
         let held = false;
+        let hHeld = false;
         for (let s = 0; s < M.STEPS; s++) {
           const on = mel[s] === off;
           if (mel[s] !== null) held = on;
           const cls = ['cell', 'r-' + r];
           if (on) cls.push('on');
           else if (held) cls.push('held');
+          if (hm) {
+            const hOn = hm[s] === off;
+            if (hm[s] !== null) hHeld = hOn;
+            if (hOn) cls.push('harm');
+            else if (hHeld) cls.push('harm', 'harm-held');
+          }
           if (s % 2 === 0) cls.push('beat');
           if (s === 0) cls.push('bar');
           if (hint && hint.i === i && hint.s === s && hint.offs.includes(off)) cls.push('hint');
@@ -825,6 +837,14 @@
     });
     const all = parts.flatMap((p) => p.notes);
     const oct = state.octave === 'auto' ? Voice.autoOctave(all.map((n) => n.midi), state.voiceBody) : Number(state.octave);
+    // Segunda voz: la misma línea movida dentro de la escala. Sigue la octava de la
+    // principal para que «3ª arriba» quede arriba aunque la cante otro cuerpo.
+    if (state.harmony !== 'off') {
+      parts.forEach((p) => {
+        const on = state.stanzas[p.k].harmony !== false;
+        p.notes.forEach((n) => { n.harmonyMidi = on ? M.midiOf(Voice.harmonize(n.off, key, state.harmony), key) + 12 * oct : null; });
+      });
+    }
     all.forEach((n) => { n.midi += 12 * oct; });
     const stanzas = parts.map((p) => ({ k: p.k, sylls: p.sylls, ...Voice.align(p.notes, p.sylls) }));
     return { oct, stanzas, pairs: stanzas.flatMap((st) => st.pairs) };
@@ -834,7 +854,9 @@
     if (!plan.pairs.some((p) => p.syl)) return null;
     return Voice.request({
       pairs: plan.pairs, bpm: state.bpm, swing: state.swing, body: state.voiceBody,
-      vibrato: state.vibrato, breath: state.breath / 100, bright: state.bright / 100,
+      vibrato: state.vibrato, breath: state.breath / 100, bright: state.bright / 100, force: state.force,
+      stanzas: state.stanzas.map((st) => ({ bars: chords.length, dyn: st.dyn })),
+      harmony: state.harmony !== 'off' ? { body: state.harmonyBody } : null,
     });
   }
 
@@ -859,10 +881,9 @@
       renderVoiceStatus();
     }).then((r) => {
       if (ui.voice !== job) return;
-      let peak = 0;
-      for (const x of r.samples) peak = Math.max(peak, Math.abs(x));
-      if (peak > 0) { const g = .9 / peak; for (let i = 0; i < r.samples.length; i++) r.samples[i] *= g; }
-      Object.assign(job, { status: 'ready', samples: r.samples, rate: r.sampleRate });
+      // Ganancia fija, no normalizada: así la fuerza se oye. El motor no pasa de 0,75.
+      [r.samples, r.harmony].forEach((buf) => { if (buf) for (let i = 0; i < buf.length; i++) buf[i] *= 1.2; });
+      Object.assign(job, { status: 'ready', samples: r.samples, harmony: r.harmony, rate: r.sampleRate });
       renderVoiceStatus();
     }).catch((e) => {
       if (ui.voice !== job) return;
@@ -879,17 +900,29 @@
     return req && JSON.stringify(req) === v.key ? v : null;
   }
 
-  const voiceLevel = () => (state.playVoice ? .55 * state.voiceVol / 100 : 0);
+  const voiceLevel = (kind = 'lead') => (state.playVoice ? .55 * state.voiceVol / 100 * (kind === 'lead' ? 1 : state.harmonyVol / 100) : 0);
 
   function startVoice(p, atMs) {
     const take = voiceTake();
     if (!take) return;
-    const node = Sound.buffer(take.samples, take.rate, (atMs - Voice.LEAD * 1000 - performance.now()) / 1000, voiceLevel());
-    if (node) p.voices.push(node);
+    const delay = (atMs - Voice.LEAD * 1000 - performance.now()) / 1000;
+    const lead = Sound.buffer(take.samples, take.rate, delay, voiceLevel('lead'), take.harmony ? -.12 : 0);
+    if (lead) p.voices.push({ kind: 'lead', node: lead });
+    if (take.harmony) {
+      const h = Sound.buffer(take.harmony, take.rate, delay, voiceLevel('harmony'), .3);
+      if (h) p.voices.push({ kind: 'harmony', node: h });
+    }
   }
 
   function voiceGain() {
-    if (ui.playing) ui.playing.voices.forEach((v) => v.gain(voiceLevel()));
+    if (ui.playing) ui.playing.voices.forEach((v) => v.node.gain(voiceLevel(v.kind)));
+  }
+
+  // El eco cae a tempo: a la corchea, a la corchea con puntillo o a la negra.
+  const ECHO_TIMES = { eighth: { name: 'Corchea', long: 'corchea', beats: .5 }, dotted: { name: 'Puntillo', long: 'corchea con puntillo', beats: .75 }, quarter: { name: 'Negra', long: 'negra', beats: 1 } };
+  const echoSeconds = () => 60 / state.bpm * ECHO_TIMES[state.echoTime].beats;
+  function applyFx() {
+    Sound.voiceFx({ reverb: state.reverb / 100, echo: state.echo / 100, echoTime: echoSeconds() });
   }
 
   function markVoiceNote(k, i, s) {
@@ -922,7 +955,8 @@
       return;
     }
     state.stanza = Math.min(Math.max(0, state.stanza), stanzaCount() - 1);
-    const chips = state.stanzas.map((st, k) =>
+    const st = state.stanzas[state.stanza];
+    const chips = state.stanzas.map((x, k) =>
       `<button class="stanza-chip" data-act="stanza" data-v="${k}" data-k="${k}" aria-pressed="${k === state.stanza}">Estrofa ${k + 1}</button>`).join('');
     head.innerHTML = `
       <div class="panel-head">
@@ -931,6 +965,10 @@
           <button data-act="stanza-add" ${stanzaCount() >= MAX_STANZAS ? 'disabled' : ''} title="Empieza con la melodía de la estrofa actual">+ Estrofa</button>
           ${stanzaCount() > 1 ? `<button data-act="stanza-remove" title="Quitar la estrofa ${state.stanza + 1}">Quitar</button>` : ''}
         </div>
+        <div class="row">
+          <span class="muted">Intensidad</span>${seg('stanza-dyn', Object.entries(Voice.DYNAMICS).map(([id, d]) => [id, d.name]), st.dyn || 'mf')}
+          ${state.harmony !== 'off' ? `<label class="check"><input type="checkbox" id="c-st-harmony" ${st.harmony !== false ? 'checked' : ''}> Segunda voz</label>` : ''}
+        </div>
         <span class="voice-status" role="status"></span>
       </div>
       <textarea id="c-lyrics" rows="2" spellcheck="true" lang="es" aria-label="Letra de la estrofa ${state.stanza + 1}" placeholder="Letra de la estrofa ${state.stanza + 1}. Por ejemplo: Cielito lindo, los ojos negros"></textarea>
@@ -938,6 +976,8 @@
     const ta = $('c-lyrics');
     ta.value = state.stanzas[state.stanza].lyrics;
     ta.oninput = () => { state.stanzas[state.stanza].lyrics = ta.value; save(); renderLetraGrid(); };
+    const hb = $('c-st-harmony');
+    if (hb) hb.onchange = () => { st.harmony = hb.checked; save(); renderLetraGrid(); };
     renderLetraGrid();
     renderVoiceStatus();
   }
@@ -972,7 +1012,7 @@
     return chords.map((c, i) => `<div class="va-bar fn-${c.fn}">
         <span class="va-chord">${nameHTML(c)}</span>
         <div class="va-notes">${byBar[i].map((p) => `<span class="va-note ${p.syl ? '' : 'is-empty'}" data-vn="${k}:${i}:${p.s}">
-          <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}</small></span>`).join('') || '<span class="va-rest">silencio</span>'}</div>
+          <b>${p.syl ? p.syl.text : '·'}</b><small>${midiLabel(p.midi)}${p.syl && p.harmonyMidi ? ' · ' + midiLabel(p.harmonyMidi) : ''}</small></span>`).join('') || '<span class="va-rest">silencio</span>'}</div>
       </div>`).join('');
   }
 
@@ -1003,29 +1043,52 @@
   function renderVoice() {
     const el = $('voice');
     const plan = voicePlan();
-    const midis = plan.pairs.filter((p) => p.syl).map((p) => p.midi);
-    const range = midis.length ? `Canta de ${midiLabel(Math.min(...midis))} a ${midiLabel(Math.max(...midis))}` : '';
+    const sung = plan.pairs.filter((p) => p.syl);
+    const span = (ms) => (ms.length ? `${midiLabel(Math.min(...ms))} a ${midiLabel(Math.max(...ms))}` : '');
+    const range = span(sung.map((p) => p.midi));
+    const hRange = span(sung.filter((p) => p.harmonyMidi).map((p) => p.harmonyMidi));
     const vib = Voice.vibratoRate(state.bpm);
+    const bodies = Object.entries(Voice.BODIES).map(([id, b]) => [id, b.name]);
     const slider = (id, label, min, max, value, unit) => `<label class="vslider"><span>${label}</span>
       <input type="range" id="${id}" min="${min}" max="${max}" step="1" value="${value}" aria-label="${label}"><output>${value}${unit}</output></label>`;
+    const harmOn = state.harmony !== 'off';
     el.innerHTML = `
       <div class="panel-head"><h2>Voz</h2></div>
       <div class="vfields">
-        <div class="field"><span>Cuerpo</span>${seg('voice-body', Object.entries(Voice.BODIES).map(([id, b]) => [id, b.name]), state.voiceBody)}</div>
+        <div class="field"><span>Cuerpo</span>${seg('voice-body', bodies, state.voiceBody)}</div>
         <div class="field"><span>Acento</span>${seg('accent', [['es', 'España'], ['latam', 'Latinoamérica']], state.accent)}</div>
         <div class="field"><span>Octava</span>${seg('octave', [['auto', 'Auto'], ['-1', '−1'], ['0', '0'], ['1', '+1']], state.octave)}
-          <span class="muted">${range}${state.octave === 'auto' && midis.length ? ` (${plan.oct > 0 ? '+' : ''}${plan.oct} oct.)` : ''}</span></div>
+          <span class="muted">${range ? 'Canta de ' + range : ''}${state.octave === 'auto' && range ? ` (${plan.oct > 0 ? '+' : ''}${plan.oct} oct.)` : ''}</span></div>
+        ${slider('v-force', 'Fuerza', 0, 100, state.force, '%')}
         ${slider('v-vibrato', 'Vibrato', 0, 80, state.vibrato, ' cents')}
         ${slider('v-breath', 'Aire', 0, 60, state.breath, '%')}
         ${slider('v-bright', 'Brillo', 0, 60, state.bright, '%')}
         ${slider('v-vol', 'Volumen', 0, 100, state.voiceVol, '%')}
       </div>
+      <div class="vgroup">
+        <h3>Segunda voz</h3>
+        <div class="vfields">
+          ${seg('harmony', [['off', 'No'], ...Object.entries(Voice.HARMONY).map(([id, h]) => [id, h.name])], state.harmony)}
+          ${harmOn ? `<div class="field"><span>Cuerpo</span>${seg('harmony-body', bodies, state.harmonyBody)}
+            <span class="muted">${hRange ? 'Canta de ' + hRange : 'Sin notas en las estrofas elegidas'}</span></div>
+          ${slider('v-hvol', 'Volumen', 0, 100, state.harmonyVol, '%')}` : '<p class="muted">Una voz paralela dentro de la escala. En la pestaña Letra eliges en qué estrofas canta.</p>'}
+        </div>
+      </div>
+      <div class="vgroup">
+        <h3>Sala</h3>
+        <div class="vfields">
+          ${slider('v-reverb', 'Reverb.', 0, 100, state.reverb, '%')}
+          ${slider('v-echo', 'Eco', 0, 100, state.echo, '%')}
+          <div class="field"><span>Eco cada</span>${seg('echo-time', Object.entries(ECHO_TIMES).map(([id, t]) => [id, t.name]), state.echoTime)}</div>
+        </div>
+      </div>
       <div class="vauto">
         <h3>Sigue a la canción</h3>
         <ul>
-          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la pestaña Letra.</li>
-          <li><b>Estrofas</b>: ${stanzaCount()}, cada una en una vuelta de la progresión.</li>
+          <li><b>Tonalidad</b> ${noteLabel(key.tonic)} ${key.scale.name.toLowerCase()}: canta las notas de la pestaña Letra${harmOn ? ' y la segunda voz se mueve dentro de esa escala' : ''}.</li>
+          <li><b>Estrofas</b>: ${stanzaCount()}, cada una en una vuelta de la progresión y con su intensidad.</li>
           <li><b>Tempo</b> ${state.bpm} ppm: cada sílaba dura su nota y las consonantes entran antes del pulso.</li>
+          <li><b>Eco</b> a la ${ECHO_TIMES[state.echoTime].long}: ${Math.round(echoSeconds() * 1000)} ms a este tempo.</li>
           <li><b>Swing</b> ${swingLabel()}: retrasa las corcheas a contratiempo igual que el resto.</li>
           <li><b>Vibrato</b> a ${vib.rate.toFixed(1).replace('.', ',')} Hz, ${vib.per} ondas por pulso, solo en las notas largas.</li>
           <li><b>Respira</b> en los silencios y en la puntuación.</li>
@@ -1034,18 +1097,25 @@
       </div>`;
     const bind = (id, prop, unit, live) => {
       const input = $(id);
+      if (!input) return;
       input.oninput = () => {
         state[prop] = Number(input.value);
         input.nextElementSibling.textContent = input.value + unit;
-        if (live) live(); else save();
+        save();
+        if (live) live();
       };
     };
+    bind('v-force', 'force', '%');
     bind('v-vibrato', 'vibrato', ' cents');
     bind('v-breath', 'breath', '%');
     bind('v-bright', 'bright', '%');
-    // El volumen no obliga a volver a cantar: se aplica al vuelo.
-    bind('v-vol', 'voiceVol', '%', () => { try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ } voiceGain(); });
+    // Volumen y sala no obligan a volver a cantar: se aplican al vuelo.
+    bind('v-vol', 'voiceVol', '%', voiceGain);
+    bind('v-hvol', 'harmonyVol', '%', voiceGain);
+    bind('v-reverb', 'reverb', '%', applyFx);
+    bind('v-echo', 'echo', '%', applyFx);
   }
+
 
   // Coordinación ---------------------------------------------------------------
 
@@ -1292,6 +1362,10 @@
       save();
       renderLetraGrid();
     },
+    harmony(el) { state.harmony = el.dataset.v; save(); renderVoice(); renderSong(); },
+    'harmony-body'(el) { state.harmonyBody = el.dataset.v; save(); renderVoice(); renderSong(); },
+    'echo-time'(el) { state.echoTime = el.dataset.v; save(); applyFx(); renderVoice(); },
+    'stanza-dyn'(el) { state.stanzas[state.stanza].dyn = el.dataset.v; save(); renderLetra(); },
     'toggle-voice'() { state.playVoice = !state.playVoice; save(); renderMutes(); voiceGain(); },
     'voice-body'(el) { state.voiceBody = el.dataset.v; save(); renderVoice(); renderSong(); },
     accent(el) { state.accent = el.dataset.v; save(); renderVoice(); renderSong(); },
@@ -1434,7 +1508,7 @@
   // natural: la canción terminó sola; la voz acaba su última sílaba.
   function stop(natural = false) {
     if (!ui.playing) return;
-    if (!natural) ui.playing.voices.forEach((v) => v.stop());
+    if (!natural) ui.playing.voices.forEach((v) => v.node.stop());
     ui.playing = null;
     markVoiceNote(-1, -1, -1);
     Midi.silence();
@@ -1510,6 +1584,7 @@
   startTicker(() => { schedule(); Midi.flush(); });
   recompute();
   render();
+  applyFx();
   refreshVoice();
   if (state.midiOn && Midi.supported()) connectMidi();
 })();

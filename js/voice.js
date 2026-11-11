@@ -4,6 +4,7 @@
 (function () {
   'use strict';
   const M = globalThis.Melody;
+  const { mod } = globalThis.Theory;
 
   const RATE = 32000;   // el motor simula a ≥ 60 kHz por dentro; 32 kHz basta para la voz
   const LEAD = 0.4;     // s antes del primer tiempo: las consonantes llegan antes del pulso
@@ -12,6 +13,33 @@
     female: { name: 'Mujer', mix: { female: 1, child: 0 }, center: 64 },
     child: { name: 'Niño', mix: { female: 0, child: 1 }, center: 67 },
   };
+
+  // Fuerza: presión del aire en los pulmones (cmH2O). Más presión, más volumen y
+  // una voz más empujada. Cada estrofa puede ir más suave o más fuerte.
+  const DYNAMICS = { p: { name: 'Suave', delta: -2.5 }, mf: { name: 'Normal', delta: 0 }, f: { name: 'Fuerte', delta: 2.5 } };
+  const pressureFor = (force, dyn = 'mf') => Math.min(14, Math.max(3.5, 4 + 9 * force / 100 + DYNAMICS[dyn || 'mf'].delta));
+
+  // Segunda voz paralela dentro de la escala, a una distancia en grados.
+  const HARMONY = {
+    above3: { name: '3ª arriba', steps: 2 },
+    below3: { name: '3ª abajo', steps: -2 },
+    below6: { name: '6ª abajo', steps: -5 },
+  };
+
+  // off: semitonos desde la tónica. Una nota cromática se armoniza desde la nota
+  // de la escala de debajo y conserva su alteración.
+  function harmonize(off, key, mode) {
+    const steps = HARMONY[mode].steps;
+    const inScale = (o) => key.pcs.has(mod(key.pc + o));
+    let base = off;
+    while (!inScale(base)) base--;
+    let o = base;
+    for (let n = Math.abs(steps); n > 0;) {
+      o += Math.sign(steps);
+      if (inScale(o)) n--;
+    }
+    return o + (off - base);
+  }
 
   // Notas de una melodía (un array de 8 pasos por compás), en orden. Cada una dura
   // hasta la siguiente o el final del compás. offset: compases desde el principio.
@@ -96,27 +124,45 @@
   }
 
   // La petición al motor: notas en pulsos (con el swing ya aplicado) y silencios.
-  function request({ pairs, bpm, swing, body, vibrato, breath, bright }) {
+  // stanzas: [{ bars, dyn, harmony }] en orden; harmony: { body, mode, midiOf } o null.
+  // Cada par puede traer harmonyMidi (la nota de la segunda voz) o no cantarla.
+  function request({ pairs, bpm, swing, body, vibrato, breath, bright, force = 55, stanzas = [], harmony = null }) {
     const beats = (a, b) => M.spanMs(a, b, swing, 0.5);
-    const notes = [];
-    let cursor = 0;
-    for (const p of pairs) {
-      if (p.g > cursor) notes.push({ midi: 0, beats: beats(cursor, p.g) });
-      const n = { midi: p.midi, beats: beats(p.g, p.g + p.len) };
-      if (p.syl) n.syl = globalThis.Spanish.toChimera(p.syl);
-      notes.push(n);
-      cursor = p.g + p.len;
-    }
-    return {
+    const toNotes = (midiOf) => {
+      const notes = [];
+      let cursor = 0;
+      for (const p of pairs) {
+        if (p.g > cursor) notes.push({ midi: 0, beats: beats(cursor, p.g) });
+        const midi = midiOf(p);
+        const n = { midi: midi || 0, beats: beats(p.g, p.g + p.len) };
+        if (p.syl && midi) n.syl = globalThis.Spanish.toChimera(p.syl);
+        notes.push(n);
+        cursor = p.g + p.len;
+      }
+      return notes;
+    };
+    // La fuerza de cada estrofa entra un poco antes de su primer compás.
+    const events = [];
+    let bar = 0;
+    stanzas.forEach((st, k) => {
+      if (k > 0) events.push({ t: Math.max(0, LEAD - 0.2 + bar * 4 * 60 / bpm), source: { pressure: pressureFor(force, st.dyn) } });
+      bar += st.bars;
+    });
+    const req = {
       sampleRate: RATE,
       body: BODIES[body].mix,
       bpm,
       t0: LEAD,
       vibrato,
       tail: 0.5,
-      source: { breathiness: breath, brightness: bright, vibratoRate: vibratoRate(bpm).rate },
-      notes,
+      source: { breathiness: breath, brightness: bright, vibratoRate: vibratoRate(bpm).rate, pressure: pressureFor(force, stanzas[0] && stanzas[0].dyn) },
+      notes: toNotes((p) => p.midi),
+      events,
     };
+    if (harmony && pairs.some((p) => p.syl && p.harmonyMidi)) {
+      req.harmony = { body: BODIES[harmony.body].mix, notes: toNotes((p) => p.harmonyMidi) };
+    }
+    return req;
   }
 
   // Motor -------------------------------------------------------------------
@@ -141,19 +187,25 @@
         post({ id, error: new TextDecoder().decode(new Uint8Array(x.memory.buffer, p, x.voz_error_len()).slice()) });
         return;
       }
+      const two = x.voz_parts() > 1;
       const out = new Float32Array(total);
+      const out2 = two ? new Float32Array(total) : null;
       let done = 0;
       while (done < total) {
         const n = x.voz_render(8192);
         if (!n) break;
         const op = x.voz_output();
         out.set(new Float32Array(x.memory.buffer, op, n), done);
+        if (two) {
+          const op2 = x.voz_output2();
+          out2.set(new Float32Array(x.memory.buffer, op2, n), done);
+        }
         done += n;
         post({ id, progress: done / total });
         await tick();
         if (job !== id) return; // llegó otra petición: esta ya no interesa
       }
-      post({ id, samples: out }, [out.buffer]);
+      post({ id, samples: out, harmony: out2 }, two ? [out.buffer, out2.buffer] : [out.buffer]);
     };
   }
 
@@ -168,7 +220,7 @@
     else {
       jobs.delete(msg.id);
       if (msg.error) job.reject(new Error(msg.error));
-      else job.resolve({ samples: msg.samples, sampleRate: RATE });
+      else job.resolve({ samples: msg.samples, harmony: msg.harmony || null, sampleRate: RATE });
     }
   }
 
@@ -205,5 +257,5 @@
     });
   }
 
-  globalThis.Voice = { RATE, LEAD, BODIES, notesOf, rhythm, autoOctave, vibratoRate, align, request, render, supported };
+  globalThis.Voice = { RATE, LEAD, BODIES, DYNAMICS, HARMONY, pressureFor, harmonize, notesOf, rhythm, autoOctave, vibratoRate, align, request, render, supported };
 })();

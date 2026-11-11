@@ -119,9 +119,70 @@
     KIT[name](ctx.currentTime + .01 + Math.max(0, delay), .75 * velocity / 127);
   }
 
+  // Sala de la voz -------------------------------------------------------------
+  // Las voces pasan por un bus con reverberación (respuesta sintética: ruido que
+  // se apaga) y un eco con realimentación, cuyo tiempo fija la app según el tempo.
+
+  let bus = null;
+  let fx = { reverb: 0, echo: 0, echoTime: .45 };
+
+  function impulse(secs) {
+    const len = Math.round(ctx.sampleRate * secs);
+    const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+    for (let c = 0; c < 2; c++) {
+      const d = buf.getChannelData(c);
+      const pre = Math.round(ctx.sampleRate * .012);
+      for (let i = pre; i < len; i++) {
+        const t = (i - pre) / (len - pre);
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2) * (1 - Math.exp(-i / (ctx.sampleRate * .004)));
+      }
+    }
+    return buf;
+  }
+
+  function voiceBus() {
+    if (bus) return bus;
+    const input = ctx.createGain();
+    input.connect(master); // señal directa
+    const revSend = ctx.createGain();
+    const conv = ctx.createConvolver();
+    conv.buffer = impulse(2.6);
+    const revOut = ctx.createGain();
+    revOut.gain.value = .9;
+    input.connect(revSend).connect(conv).connect(revOut).connect(master);
+    const echoSend = ctx.createGain();
+    const delay = ctx.createDelay(3);
+    const tone = ctx.createBiquadFilter();
+    tone.type = 'lowpass';
+    tone.frequency.value = 2800;
+    const feedback = ctx.createGain();
+    input.connect(echoSend).connect(delay).connect(tone);
+    tone.connect(feedback).connect(delay);
+    tone.connect(master);
+    tone.connect(revSend); // los ecos también suenan en la sala
+    bus = { input, revSend, echoSend, delay, feedback };
+    applyFx();
+    return bus;
+  }
+
+  function applyFx() {
+    if (!bus) return;
+    const t = ctx.currentTime;
+    bus.revSend.gain.setTargetAtTime(fx.reverb * .7, t, .05);
+    bus.echoSend.gain.setTargetAtTime(fx.echo * .55, t, .05);
+    bus.feedback.gain.setTargetAtTime(.22 + fx.echo * .3, t, .05);
+    bus.delay.delayTime.setTargetAtTime(Math.min(2.9, fx.echoTime), t, .05);
+  }
+
+  // reverb y echo de 0 a 1; echoTime en segundos.
+  function voiceFx(next) {
+    fx = { ...fx, ...next };
+    applyFx();
+  }
+
   // Muestras ya renderizadas (la voz). Devuelve con qué pararlas o cambiar su volumen.
   const buffers = new WeakMap();
-  function buffer(samples, rate, delay = 0, gain = 1) {
+  function buffer(samples, rate, delay = 0, gain = 1, pan = 0) {
     if (!ensure()) return null;
     let buf = buffers.get(samples);
     if (!buf) {
@@ -133,7 +194,13 @@
     src.buffer = buf;
     const g = ctx.createGain();
     g.gain.value = gain;
-    src.connect(g).connect(master);
+    let node = src.connect(g);
+    if (pan && ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.value = pan;
+      node = node.connect(p);
+    }
+    node.connect(voiceBus().input);
     // Si el momento ya pasó, empieza ahora desde donde debería ir.
     const at = ctx.currentTime + .01 + delay;
     if (delay >= 0) src.start(at);
@@ -144,5 +211,5 @@
     };
   }
 
-  globalThis.Sound = { chord, note, drum, buffer };
+  globalThis.Sound = { chord, note, drum, buffer, voiceFx };
 })();

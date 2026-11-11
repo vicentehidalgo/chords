@@ -4,8 +4,10 @@
 //!
 //! Petición (JSON, camelCase):
 //! { sampleRate, body: {female, child}, bpm, t0, vibrato, tail,
-//!   source: { breathiness, brightness, ... },
-//!   notes: [{ midi, beats, syl? }] }  — una nota sin `syl` es un silencio.
+//!   source: { breathiness, brightness, pressure, ... },
+//!   notes: [{ midi, beats, syl? }],            — una nota sin `syl` es un silencio
+//!   events?: [{ t, source }],                   — cambios de fuente en el tiempo (s)
+//!   harmony?: { body, notes } }                 — segunda voz, misma letra y tiempo
 
 use chimera::anatomy::human::BodyMix;
 use chimera::math::midi_to_hz;
@@ -31,6 +33,12 @@ struct Request {
     #[serde(default)]
     source: SourcePatch,
     notes: Vec<Note>,
+    /// Cambios de la fuente a lo largo de la canción (p. ej. la fuerza de cada estrofa).
+    #[serde(default)]
+    events: Vec<Event>,
+    /// Segunda voz: otro cuerpo y otras notas, con la misma letra y el mismo tiempo.
+    #[serde(default)]
+    harmony: Option<Part>,
 }
 
 #[derive(Deserialize)]
@@ -41,12 +49,28 @@ struct Note {
     syl: Option<Syllable>,
 }
 
+#[derive(Deserialize)]
+struct Event {
+    t: f64,
+    source: SourcePatch,
+}
+
+#[derive(Deserialize)]
+struct Part {
+    body: BodyMix,
+    notes: Vec<Note>,
+}
+
 #[derive(Default)]
 struct State {
     input: Vec<u8>,
     out: Vec<f32>,
+    out2: Vec<f32>,
     error: String,
-    voice: Option<HumanVoice>,
+    voices: Vec<HumanVoice>,
+    events: Vec<Event>,
+    next_event: usize,
+    fs: f64,
     total: usize,
     done: usize,
 }
@@ -55,13 +79,11 @@ thread_local! {
     static STATE: RefCell<State> = RefCell::new(State::default());
 }
 
-fn start(req: Request) -> Result<(HumanVoice, usize), String> {
-    if !(req.bpm > 0.0) || !(req.sample_rate > 0.0) {
-        return Err("bpm y sampleRate deben ser positivos".into());
-    }
-    let first = req.notes.iter().find(|n| n.syl.is_some()).ok_or("no hay notas con letra")?;
+/// Una voz con sus notas planificadas. Devuelve la voz y cuándo termina (s).
+fn voice(req: &Request, body: BodyMix, notes: &[Note]) -> Result<(HumanVoice, f64), String> {
+    let first = notes.iter().find(|n| n.syl.is_some() && n.midi > 0.0).ok_or("no hay notas con letra")?;
     let fs = req.sample_rate;
-    let mut v = HumanVoice::new(fs, req.body.body(), oversample_for(fs));
+    let mut v = HumanVoice::new(fs, body.body(), oversample_for(fs));
     // Igual que `chimera render notes`, con los retoques de la petición encima.
     let mut source = SourcePatch {
         f0: Some(midi_to_hz(first.midi)),
@@ -70,20 +92,7 @@ fn start(req: Request) -> Result<(HumanVoice, usize), String> {
         tension: Some(0.55),
         ..Default::default()
     };
-    let p = req.source;
-    for (dst, src) in [
-        (&mut source.breathiness, p.breathiness),
-        (&mut source.brightness, p.brightness),
-        (&mut source.pressure, p.pressure),
-        (&mut source.tension, p.tension),
-        (&mut source.roughness, p.roughness),
-        (&mut source.vibrato_rate, p.vibrato_rate),
-        (&mut source.drift, p.drift),
-    ] {
-        if src.is_some() {
-            *dst = src;
-        }
-    }
+    merge(&mut source, &req.source);
     v.set_source(&source);
 
     // Cada tramo cantado entre silencios se planifica por separado: toma aire.
@@ -94,12 +103,12 @@ fn start(req: Request) -> Result<(HumanVoice, usize), String> {
         if phrase.is_empty() {
             return;
         }
-        let plan = plan_song(phrase, &SongOptions { body: req.body, bpm: req.bpm, t0: start, vibrato: req.vibrato });
+        let plan = plan_song(phrase, &SongOptions { body, bpm: req.bpm, t0: start, vibrato: req.vibrato });
         v.schedule(&plan.gestures);
         end = end.max(plan.end);
         phrase.clear();
     };
-    for n in &req.notes {
+    for n in notes {
         match &n.syl {
             Some(syl) if n.midi > 0.0 => {
                 if phrase.is_empty() {
@@ -112,8 +121,46 @@ fn start(req: Request) -> Result<(HumanVoice, usize), String> {
         t += n.beats * beat;
     }
     flush(&mut phrase, start, &mut v);
-    let total = ((end + req.tail.unwrap_or(0.4)) * fs).round() as usize;
-    Ok((v, total))
+    Ok((v, end))
+}
+
+/// Copia en `dst` los valores que trae `src` (los que no, se quedan).
+fn merge(dst: &mut SourcePatch, src: &SourcePatch) {
+    for (d, s) in [
+        (&mut dst.breathiness, src.breathiness),
+        (&mut dst.brightness, src.brightness),
+        (&mut dst.pressure, src.pressure),
+        (&mut dst.tension, src.tension),
+        (&mut dst.roughness, src.roughness),
+        (&mut dst.vibrato_rate, src.vibrato_rate),
+        (&mut dst.drift, src.drift),
+        (&mut dst.fry, src.fry),
+        (&mut dst.glide, src.glide),
+    ] {
+        if s.is_some() {
+            *d = s;
+        }
+    }
+}
+
+fn start(st: &mut State, mut req: Request) -> Result<usize, String> {
+    if !(req.bpm > 0.0) || !(req.sample_rate > 0.0) {
+        return Err("bpm y sampleRate deben ser positivos".into());
+    }
+    let (lead, mut end) = voice(&req, req.body, &req.notes)?;
+    st.voices = vec![lead];
+    if let Some(h) = &req.harmony {
+        // Una segunda voz sin ninguna nota cantada simplemente no se crea.
+        if let Ok((v, e)) = voice(&req, h.body, &h.notes) {
+            st.voices.push(v);
+            end = end.max(e);
+        }
+    }
+    req.events.sort_by(|a, b| a.t.total_cmp(&b.t));
+    st.events = std::mem::take(&mut req.events);
+    st.next_event = 0;
+    st.fs = req.sample_rate;
+    Ok(((end + req.tail.unwrap_or(0.4)) * req.sample_rate).round() as usize)
 }
 
 /// Reserva `len` bytes para la petición y devuelve dónde escribirla.
@@ -130,17 +177,17 @@ pub extern "C" fn voz_input(len: usize) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub extern "C" fn voz_start() -> f64 {
     STATE.with_borrow_mut(|s| {
-        s.voice = None;
+        s.voices.clear();
         s.error.clear();
-        let parsed = serde_json::from_slice::<Request>(&s.input).map_err(|e| e.to_string()).and_then(start);
-        match parsed {
-            Ok((v, total)) => {
-                s.voice = Some(v);
+        let parsed = serde_json::from_slice::<Request>(&s.input).map_err(|e| e.to_string());
+        match parsed.and_then(|req| start(s, req)) {
+            Ok(total) => {
                 s.total = total;
                 s.done = 0;
                 total as f64
             }
             Err(e) => {
+                s.voices.clear();
                 s.error = e;
                 -1.0
             }
@@ -148,19 +195,43 @@ pub extern "C" fn voz_start() -> f64 {
     })
 }
 
+/// Cuántas voces suenan: 1, o 2 con la armonía (la segunda se lee en `voz_output2`).
+#[unsafe(no_mangle)]
+pub extern "C" fn voz_parts() -> usize {
+    STATE.with_borrow(|s| s.voices.len())
+}
+
 /// Renderiza hasta `frames` muestras más. Devuelve cuántas; se leen en `voz_output`.
 #[unsafe(no_mangle)]
 pub extern "C" fn voz_render(frames: usize) -> usize {
     STATE.with_borrow_mut(|s| {
+        if s.voices.is_empty() {
+            return 0;
+        }
         let n = frames.min(MAX_RENDER).min(s.total - s.done);
         s.out.resize(MAX_RENDER, 0.0);
-        let Some(v) = s.voice.as_mut() else { return 0 };
-        for block in s.out[..n].chunks_mut(BLOCK) {
-            v.render(block);
+        s.out2.resize(MAX_RENDER, 0.0);
+        let mut pos = 0;
+        while pos < n {
+            // Los cambios de fuente entran al principio del bloque que los contiene.
+            let now = (s.done + pos) as f64 / s.fs;
+            while s.next_event < s.events.len() && s.events[s.next_event].t <= now {
+                let patch = s.events[s.next_event].source;
+                s.voices.iter_mut().for_each(|v| v.set_source(&patch));
+                s.next_event += 1;
+            }
+            let len = BLOCK.min(n - pos);
+            let (a, b) = (&mut s.out[pos..pos + len], &mut s.out2[pos..pos + len]);
+            s.voices[0].render(a);
+            match s.voices.get_mut(1) {
+                Some(v) => v.render(b),
+                None => b.fill(0.0),
+            }
+            pos += len;
         }
         s.done += n;
         if s.done >= s.total {
-            s.voice = None;
+            s.voices.clear();
         }
         n
     })
@@ -169,6 +240,11 @@ pub extern "C" fn voz_render(frames: usize) -> usize {
 #[unsafe(no_mangle)]
 pub extern "C" fn voz_output() -> *const f32 {
     STATE.with_borrow(|s| s.out.as_ptr())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn voz_output2() -> *const f32 {
+    STATE.with_borrow(|s| s.out2.as_ptr())
 }
 
 #[unsafe(no_mangle)]

@@ -481,3 +481,9 @@ button.link.inline { padding: 0; font: inherit; }
   .tab-voice { flex-direction: column; }
   .voice-panel { flex: none; }
 }
+.vgroup { border-top: 1px solid var(--line); padding-top: 10px; }
+.vgroup h3 { margin: 0 0 8px; }
+.vgroup .muted { font-size: 12.5px; margin: 0; }
+.letra-head .row .muted { font-size: 13px; }
+.cell.harm::before { content: ""; position: absolute; inset: 3px 2px; border: 1.5px dashed var(--ink-2); border-radius: 4px; opacity: .7; }
+.cell.harm.harm-held::before { border-left: 0; border-right: 0; border-radius: 0; inset: 3px 0; opacity: .35; }
