@@ -538,3 +538,10 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; }
 .copy-pick .muted { font-size: 13px; margin-right: 2px; }
 .copy-pick .is-suggested { border-color: var(--accent); }
 .copy-pick button.link { padding: 0 4px; }
+.tabs .tab-solo {
+  padding: 0 4px; margin-left: -2px; margin-right: 6px; min-width: 18px; height: 18px; line-height: 16px;
+  font: 700 10.5px var(--sans); color: var(--ink-2); background: none; border: 1px solid var(--line); border-radius: 4px;
+}
+.tabs .tab-solo[aria-pressed="true"] { background: var(--tension); border-color: var(--tension); color: var(--paper); }
+.tabs .tab-mute.is-implied { opacity: .35; }
+@media (max-width: 600px) { .tabs .tab-solo { margin-right: 3px; } }

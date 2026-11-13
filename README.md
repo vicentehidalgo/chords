@@ -16,7 +16,10 @@ Spanish and English.
 - **Drums**: a rhythm wheel with one ring per instrument; rings with different step counts
   make polyrhythms. Euclidean patterns, rhythms from around the world, and an “invent” button.
 - **Lyrics and a singing voice**: write lyrics in Spanish or English and a physically
-  modelled voice sings them, with each language’s own pronunciation.
+  modelled voice sings them, with each language’s own pronunciation. The voice has its own
+  melody, independent of the instrumental one.
+- **Fast re-singing**: the voice is rendered verse by verse across several processor cores,
+  and only the verse you change is sung again.
 - **Voice sound**: body (man, woman, child), power and per-verse dynamics, an automatic second
   voice that harmonises in the scale, reverb and an echo in time with the song.
 - **Verses**: melody, bass and lyrics each have their own verses, with independent counts.
@@ -24,12 +27,14 @@ Spanish and English.
 - **Timeline**: a bar across the bottom shows the whole song and where playback is. Drag to
   loop a section of bars; clear it to play the song normally; click to start anywhere.
 - **Feel**: tempo, a swing amount for each part, and a rhythm for the chords.
+- **Mute and solo**: next to each part’s tab; solo one or several parts to hear them alone.
 - **MIDI out**: play your instrument over USB with any combination of chords, melody, bass and
   drums, each on its own channel.
 - **Projects**: save the song to a file you can download and open later; the browser tab shows
   the project name.
-- **Quick to use**: tabs for each part (switch with the `Tab` key), a mute button next to each
-  tab, undo, and a layout that fits the window without scrolling.
+- **Spanish and English**: the whole interface in either language, switched from the top right.
+- **Quick to use**: tabs for each part (switch with the `Tab` key), undo, keyboard shortcuts,
+  and a layout that fits the window without scrolling.
 
 ## Progression
 
@@ -111,6 +116,13 @@ The bar at the bottom, the same on every tab, shows the whole song bar by bar wi
 of each bar and which verses play in each pass (M = melody, B = bass, L = lyrics), the total
 length and the playback position. Drag across it to loop a section of bars, even across
 verses; “Clear loop” removes it and the song plays normally. Click a bar to start from there.
+
+## Mute and solo
+
+Next to each part’s tab there is a mute button (speaker) and a solo button (S). When any part
+is soloed, only the soloed parts play; you can solo several at once, and a soloed part that is
+also muted stays silent. Parts silenced by someone else’s solo show a dimmed speaker. Mute and
+solo affect the browser sound; what is sent over MIDI is chosen in the MIDI menu.
 
 ## Swing and rhythm
 

@@ -23,6 +23,7 @@
     vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true, force: 55,
     harmony: 'off', harmonyBody: 'male', harmonyVol: 70, reverb: 25, echo: 0, echoTime: 'dotted',
     prog: [], name: '', melVerses: 1, mstanza: 0, region: null,
+    solo: {},
     bassVerses: 1, bstanza: 0, playBass: true, bassStyle: 'root5', sendBass: true, midiBassCh: 3,
   };
   // Lo que es de la canción y viaja en el archivo del proyecto. El resto (idioma,
@@ -743,7 +744,7 @@
 
   function fireDrum(hit) {
     const { at } = hit;
-    if (state.playDrums && !browserMuted()) Sound.drum(hit.inst, hit.velocity, (at - performance.now()) / 1000);
+    if (hears('drums') && !browserMuted()) Sound.drum(hit.inst, hit.velocity, (at - performance.now()) / 1000);
     if (state.sendDrums) Midi.note(state.midiDrumCh, Drums.INSTRUMENTS[hit.inst].midi, 80, hit.velocity, at);
     if (state.tab !== 'drums') return;
     setTimeout(() => {
@@ -1013,7 +1014,7 @@
     return lead ? { lead, harm: get(pt.harm) } : null;
   }
 
-  const voiceLevel = (kind = 'lead') => (state.playVoice ? .55 * state.voiceVol / 100 * (kind === 'lead' ? 1 : state.harmonyVol / 100) : 0);
+  const voiceLevel = (kind = 'lead') => (hears('voice') ? .55 * state.voiceVol / 100 * (kind === 'lead' ? 1 : state.harmonyVol / 100) : 0);
 
   // Lanza la estrofa vk de la voz. vb: compás de la estrofa por el que se entra; en
   // el 0 se arranca antes para que las consonantes lleguen a tiempo. jump: la
@@ -1575,6 +1576,10 @@
   const ICON_ON = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.5a6.3 6.3 0 0 1 0 9"/></svg>`;
   const ICON_OFF = `<svg viewBox="0 0 16 16" aria-hidden="true">${SPEAKER}<path d="m11 6 4 4m0-4-4 4"/></svg>`;
 
+  // Solo: si alguna parte está en solo, solo suenan las que lo están (y no están silenciadas).
+  const anySolo = () => Object.keys(MUTES).some((t) => state.solo[t]);
+  const hears = (t) => Boolean(state[MUTES[t].prop]) && (!anySolo() || Boolean(state.solo[t]));
+
   function renderMutes() {
     TABS.forEach((t) => {
       const btn = $('mute-' + t);
@@ -1582,6 +1587,16 @@
       const { prop, name } = MUTES[t];
       const off = !state[prop];
       btn.innerHTML = off ? ICON_OFF : ICON_ON;
+      // Callada porque otra parte está en solo: el altavoz se atenúa.
+      btn.classList.toggle('is-implied', !off && !hears(t));
+      const solo = $('solo-' + t);
+      if (solo) {
+        solo.setAttribute('aria-pressed', String(Boolean(state.solo[t])));
+        const sl = tx('Solo de ', 'Solo ') + tx(...name);
+        solo.setAttribute('aria-label', sl);
+        solo.title = sl + tx(' (puedes poner varias partes en solo)', ' (you can solo several parts)');
+        solo.disabled = t !== 'voice' && browserMuted();
+      }
       // La voz no va por MIDI: suena en el navegador aunque el resto no.
       const blocked = t !== 'voice' && browserMuted();
       btn.disabled = blocked;
@@ -1740,6 +1755,13 @@
       const r = state.rings[Number(el.dataset.i)];
       r.steps = Drums.rotate(r.steps, Number(el.dataset.d));
       changedRings();
+    },
+    solo(el) {
+      const t = el.dataset.v;
+      state.solo = { ...state.solo, [t]: !state.solo[t] };
+      save();
+      renderMutes();
+      voiceGain();
     },
     'toggle-drums'() { state.playDrums = !state.playDrums; save(); renderMutes(); },
     'midi-panic'() { Midi.panic(); },
@@ -1975,17 +1997,17 @@
       const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
       const to = hit + 1 < hits.length ? hits[hit + 1] : M.STEPS;
       const dur = M.spanMs(s, to, state.swingChords, stepMs) * .95 / 1000;
-      if (v) emitChord(v.midis, dur, .15, base + M.swingShift(s, state.swingChords, stepMs), state.playChords);
+      if (v) emitChord(v.midis, dur, .15, base + M.swingShift(s, state.swingChords, stepMs), hears('chords'));
     }
     const b = noteRun(bassAtBar(i, bk), s);
     if (b) {
       const dur = M.spanMs(s, s + b.len, state.swingBass, stepMs) * .9 / 1000;
-      emitBass(M.midiOf(b.off, key), dur, .42, base + M.swingShift(s, state.swingBass, stepMs), state.playBass);
+      emitBass(M.midiOf(b.off, key), dur, .42, base + M.swingShift(s, state.swingBass, stepMs), hears('bass'));
     }
     const n = melodyAt(p.list, i, s, mk);
     if (n) {
       const dur = M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000;
-      emitNote(M.midiOf(n.off, key), dur, .32, base + M.swingShift(s, state.swingMelody, stepMs), state.playMelody);
+      emitNote(M.midiOf(n.off, key), dur, .32, base + M.swingShift(s, state.swingMelody, stepMs), hears('melody'));
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
