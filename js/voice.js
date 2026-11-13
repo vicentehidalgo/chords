@@ -177,6 +177,10 @@
         x = new WebAssembly.Instance(new WebAssembly.Module(d.wasm), {}).exports;
         return;
       }
+      if (d.cancel !== undefined) {
+        if (job === d.cancel) job = 0;
+        return;
+      }
       const id = d.id;
       job = id;
       const bytes = new TextEncoder().encode(d.json);
@@ -188,61 +192,104 @@
         post({ id, error: new TextDecoder().decode(new Uint8Array(x.memory.buffer, p, x.voz_error_len()).slice()) });
         return;
       }
-      const two = x.voz_parts() > 1;
+      // Una voz por trabajo: la segunda voz se encarga como un trabajo aparte.
       const out = new Float32Array(total);
-      const out2 = two ? new Float32Array(total) : null;
       let done = 0;
       while (done < total) {
         const n = x.voz_render(8192);
         if (!n) break;
         const op = x.voz_output();
         out.set(new Float32Array(x.memory.buffer, op, n), done);
-        if (two) {
-          const op2 = x.voz_output2();
-          out2.set(new Float32Array(x.memory.buffer, op2, n), done);
-        }
         done += n;
         post({ id, progress: done / total });
         await tick();
-        if (job !== id) return; // llegó otra petición: esta ya no interesa
+        if (job !== id) { post({ id, cancelled: true }); return; } // ya no interesa
       }
-      post({ id, samples: out, harmony: out2 }, two ? [out.buffer, out2.buffer] : [out.buffer]);
+      post({ id, samples: out }, [out.buffer]);
     };
   }
 
-  let handle = null;
+  // Varios motores en paralelo, uno por núcleo libre (hasta 4). Cada trozo de la
+  // canción (una estrofa de una voz) es un trabajo; se reparten según quedan libres.
+  const slots = [];
+  const queue = [];
   let nextId = 0;
-  const jobs = new Map();
 
-  function receive(msg) {
-    const job = jobs.get(msg.id);
-    if (!job) return;
-    if (msg.progress !== undefined) job.onProgress(msg.progress);
-    else {
-      jobs.delete(msg.id);
-      if (msg.error) job.reject(new Error(msg.error));
-      else job.resolve({ samples: msg.samples, harmony: msg.harmony || null, sampleRate: RATE });
-    }
-  }
-
-  function start() {
-    const b64 = globalThis.VOZ_WASM;
-    const raw = atob(b64);
+  function wasmBytes() {
+    const raw = atob(globalThis.VOZ_WASM);
     const wasm = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) wasm[i] = raw.charCodeAt(i);
+    return wasm;
+  }
+
+  function makeSlot() {
+    const slot = { job: null, send: null };
+    const onMsg = (msg) => {
+      const job = slot.job;
+      if (!job || job.id !== msg.id) return;
+      if (msg.progress !== undefined) { job.onProgress(msg.progress); return; }
+      slot.job = null;
+      if (msg.error) job.reject(new Error(msg.error));
+      else if (msg.cancelled) job.reject(new Error('cancelada'));
+      else job.resolve({ samples: msg.samples, sampleRate: RATE });
+      pump();
+    };
     if (typeof Worker === 'function') {
       try {
         const src = `const handle = (${engine.toString()})((m, t) => postMessage(m, t || []));\nonmessage = (e) => handle(e.data);`;
         const w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
-        w.onmessage = (e) => receive(e.data);
+        w.onmessage = (e) => onMsg(e.data);
+        const wasm = wasmBytes();
         w.postMessage({ wasm: wasm.buffer }, [wasm.buffer]);
-        return (d) => w.postMessage(d);
+        slot.send = (d) => w.postMessage(d);
+        return slot;
       } catch (e) { /* sin Worker: hilo principal */ }
     }
-    const h = engine((m) => receive(m));
-    h({ wasm });
-    return h;
+    const h = engine(onMsg);
+    h({ wasm: wasmBytes() });
+    slot.send = h;
+    return slot;
   }
+
+  function ensureSlots() {
+    if (slots.length) return;
+    const cores = (globalThis.navigator && navigator.hardwareConcurrency) || 2;
+    const n = typeof Worker === 'function' ? Math.max(1, Math.min(4, cores - 1)) : 1;
+    for (let i = 0; i < n; i++) slots.push(makeSlot());
+  }
+
+  function pump() {
+    for (const slot of slots) {
+      if (slot.job || !queue.length) continue;
+      const job = queue.shift();
+      slot.job = job;
+      slot.send({ id: job.id, json: job.json });
+    }
+  }
+
+  // Encarga un trozo. Devuelve { promise, cancel }; cancelar lo saca de la cola o lo corta.
+  function job(req, onProgress = () => {}) {
+    if (!supported()) return { promise: Promise.reject(new Error('sin motor')), cancel() {} };
+    ensureSlots();
+    const id = ++nextId;
+    let entry;
+    const promise = new Promise((resolve, reject) => {
+      entry = { id, json: JSON.stringify(req), resolve, reject, onProgress };
+    });
+    queue.push(entry);
+    pump();
+    return {
+      promise,
+      cancel() {
+        const q = queue.indexOf(entry);
+        if (q >= 0) { queue.splice(q, 1); entry.reject(new Error('cancelada')); return; }
+        const slot = slots.find((x) => x.job === entry);
+        if (slot) slot.send({ cancel: id });
+      },
+    };
+  }
+
+  const workers = () => { ensureSlots(); return slots.length; };
 
   // Inglés: el motor convierte la letra en sílabas con el diccionario CMU. Corre en
   // el hilo principal (la interfaz cuenta las sílabas al escribir); el diccionario
@@ -302,17 +349,5 @@
 
   const supported = () => typeof WebAssembly === 'object' && typeof globalThis.VOZ_WASM === 'string';
 
-  // Devuelve una promesa con las muestras. Una petición nueva deja sin efecto la anterior.
-  function render(req, onProgress = () => {}) {
-    if (!handle) handle = start();
-    jobs.forEach((job) => job.reject(new Error('cancelada')));
-    jobs.clear();
-    const id = ++nextId;
-    return new Promise((resolve, reject) => {
-      jobs.set(id, { resolve, reject, onProgress });
-      handle({ id, json: JSON.stringify(req) });
-    });
-  }
-
-  globalThis.Voice = { RATE, LEAD, BODIES, DYNAMICS, HARMONY, pressureFor, harmonize, notesOf, rhythm, english, loadDict, autoOctave, vibratoRate, align, request, render, supported };
+  globalThis.Voice = { RATE, LEAD, BODIES, DYNAMICS, HARMONY, pressureFor, harmonize, notesOf, rhythm, english, loadDict, autoOctave, vibratoRate, align, request, job, workers, supported };
 })();

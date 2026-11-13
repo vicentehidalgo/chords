@@ -9,6 +9,7 @@ load('js/melody.js');
 globalThis.performance = globalThis.performance || { now: () => clock };
 var clock = 1000;
 load('js/midi.js');
+load('js/bass.js');
 load('js/drums.js');
 load('js/spanish.js');
 load('js/voice.js');
@@ -397,6 +398,37 @@ eq(missing, 0, 'cobertura de voicings');
   eq(I18n.scaleInText('Dórico'), 'Dorian', 'escala dentro de una frase en inglés');
   I18n.set('es');
   eq([I18n.tr('Dórico'), I18n.scaleInText('Dórico')], ['Dórico', 'dórico'], 'en español no se toca');
+}
+
+// Bajo
+{
+  for (const [pc, id] of [[0, 'ionian'], [9, 'aeolian'], [7, 'mixolydian'], [2, 'dorian']]) {
+    const k = makeKey(pc, id);
+    const f = harmonicField(k, 1);
+    const cs = [f[0], f[5 % f.length], f[3], f[4], ...outsideChords(k, 1).slice(0, 2)];
+    for (const style of Object.keys(Bass.STYLES)) {
+      const line = Bass.generate(cs, k, style, Melody.seeded(11));
+      const bad = [];
+      line.forEach((bar, i) => {
+        if (bar.length !== Melody.STEPS) bad.push('longitud');
+        if (bar[0] === null || Theory.mod(k.pc + bar[0]) !== cs[i].root.pc) bad.push(`compás ${i}: no empieza en la raíz`);
+        bar.forEach((o) => { if (o !== null && (o < Bass.LOW || o > Bass.HIGH)) bad.push(`fuera de registro ${o}`); });
+        if (style === 'walking') {
+          const nextRoot = line[(i + 1) % line.length][0];
+          if (Math.abs(bar[6] - nextRoot) !== 1) bad.push(`compás ${i}: la aproximación no está a un semitono`);
+        }
+        if (style === 'root5' && bar[4] !== null) {
+          const pcs = cs[i].tones.map((t) => t.pc);
+          if (!pcs.includes(Theory.mod(k.pc + bar[4]))) bad.push(`compás ${i}: la quinta no es del acorde`);
+        }
+      });
+      eq(bad, [], `bajo ${style} en ${id} ${pc}`);
+    }
+  }
+  const k = makeKey(0, 'ionian');
+  const f = harmonicField(k, 0);
+  const roots = Bass.generate([f[0], f[4], f[5], f[3]], k, 'whole', () => .5).map((b) => b[0]);
+  eq(roots.every((r, i) => !i || Math.abs(r - roots[i - 1]) <= 7), true, 'las raíces se encadenan sin saltos grandes');
 }
 
 print(`${passed} correctas, ${failed} fallidas`);

@@ -36,6 +36,10 @@
         <button class="tab-mute" id="mute-melody" data-act="toggle-melody"></button>
       </span>
       <span class="tab-item" role="presentation">
+        <button role="tab" id="tab-btn-bass" data-act="tab" data-v="bass" aria-controls="tab-bass" aria-keyshortcuts="Tab" data-en="Bass">Bajo</button>
+        <button class="tab-mute" id="mute-bass" data-act="toggle-bass"></button>
+      </span>
+      <span class="tab-item" role="presentation">
         <button role="tab" id="tab-btn-drums" data-act="tab" data-v="drums" aria-controls="tab-drums" aria-keyshortcuts="Tab" data-en="Drums">Percusión</button>
         <button class="tab-mute" id="mute-drums" data-act="toggle-drums"></button>
       </span>
@@ -69,6 +73,10 @@
       <section class="panel melody" aria-label="Melodía" data-en-label="Melody" id="melody"></section>
     </div>
 
+    <div class="tab tab-bass" id="tab-bass" role="tabpanel" aria-labelledby="tab-btn-bass">
+      <section class="panel melody" aria-label="Bajo" data-en-label="Bass" id="bass"></section>
+    </div>
+
     <div class="tab tab-drums" id="tab-drums" role="tabpanel" aria-labelledby="tab-btn-drums">
       <section class="panel wheel-panel" aria-label="Rueda de ritmos" data-en-label="Rhythm wheel" id="wheel"></section>
       <section class="panel rings-panel" aria-label="Anillos" data-en-label="Rings" id="rings"></section>
@@ -92,6 +100,7 @@
   <script src="js/suggest.js"></script>
   <script src="js/voicings.js"></script>
   <script src="js/melody.js"></script>
+  <script src="js/bass.js"></script>
   <script src="js/drums.js"></script>
   <script src="js/diagrams.js"></script>
   <script src="js/spanish.js"></script>

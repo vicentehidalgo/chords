@@ -19,11 +19,11 @@
   }
 
   // Filas disponibles (agudo → grave): escala más las notas de los acordes usados.
-  function rows(key, chords) {
+  function rows(key, chords, low = LOW, high = HIGH) {
     const pcs = new Set(key.pcs);
     chords.forEach((c) => c.pcs.forEach((pc) => pcs.add(pc)));
     const out = [];
-    for (let off = HIGH; off >= LOW; off--) {
+    for (let off = high; off >= low; off--) {
       if (pcs.has(mod(key.pc + off))) out.push(off);
     }
     return out;

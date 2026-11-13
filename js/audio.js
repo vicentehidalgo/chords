@@ -24,6 +24,7 @@
     guitar: { waves: [['triangle', 1, .7], ['sawtooth', 1, .08]], attack: .004, decay: 1.6, cut: 2600 },
     piano: { waves: [['triangle', 1, .6], ['sine', 2, .18]], attack: .006, decay: 2.2, cut: 3400 },
     lead: { waves: [['sine', 1, .75], ['triangle', 2, .1]], attack: .02, decay: 3, cut: 5000 },
+    bass: { waves: [['sine', 1, .8], ['sawtooth', 1, .22], ['sine', .5, .25]], attack: .006, decay: 1.4, cut: 1100 },
   };
 
   function tone(midi, at, dur, gain, name) {
@@ -61,6 +62,11 @@
   function note(midi, dur = .4, gain = .32, delay = 0) {
     if (!ensure()) return;
     tone(midi, ctx.currentTime + .01 + Math.max(0, delay), dur, gain, 'lead');
+  }
+
+  function bass(midi, dur = .4, gain = .4, delay = 0) {
+    if (!ensure()) return;
+    tone(midi, ctx.currentTime + .01 + Math.max(0, delay), dur, gain, 'bass');
   }
 
   // Percusión sintetizada ------------------------------------------------------
@@ -216,5 +222,5 @@
     };
   }
 
-  globalThis.Sound = { chord, note, drum, buffer, voiceFx };
+  globalThis.Sound = { chord, note, bass, drum, buffer, voiceFx };
 })();
