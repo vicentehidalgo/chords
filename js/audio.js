@@ -182,7 +182,8 @@
 
   // Muestras ya renderizadas (la voz). Devuelve con qué pararlas o cambiar su volumen.
   const buffers = new WeakMap();
-  function buffer(samples, rate, delay = 0, gain = 1, pan = 0) {
+  // offset: segundos de la toma que se saltan (para empezar a mitad de canción).
+  function buffer(samples, rate, delay = 0, gain = 1, pan = 0, offset = 0) {
     if (!ensure()) return null;
     let buf = buffers.get(samples);
     if (!buf) {
@@ -203,10 +204,14 @@
     node.connect(voiceBus().input);
     // Si el momento ya pasó, empieza ahora desde donde debería ir.
     const at = ctx.currentTime + .01 + delay;
-    if (delay >= 0) src.start(at);
-    else src.start(ctx.currentTime + .01, Math.min(-delay, buf.duration));
+    if (delay >= 0) src.start(at, Math.min(offset, buf.duration));
+    else src.start(ctx.currentTime + .01, Math.min(offset - delay, buf.duration));
     return {
-      stop() { try { src.stop(); } catch (e) { /* ya parado */ } },
+      // whenMs: instante en la escala de performance.now(); sin él, ahora.
+      stop(whenMs) {
+        const t = whenMs === undefined ? 0 : Math.max(ctx.currentTime, ctx.currentTime + (whenMs - performance.now()) / 1000);
+        try { src.stop(t); } catch (e) { /* ya parado */ }
+      },
       gain(v) { g.gain.setTargetAtTime(v, ctx.currentTime, .03); },
     };
   }

@@ -22,7 +22,7 @@
     stanza: 0, voiceBody: 'female', accent: 'es', octave: 'auto',
     vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true, force: 55,
     harmony: 'off', harmonyBody: 'male', harmonyVol: 70, reverb: 25, echo: 0, echoTime: 'dotted',
-    prog: [], name: '', melVerses: 1, mstanza: 0,
+    prog: [], name: '', melVerses: 1, mstanza: 0, region: null,
   };
   // Lo que es de la canción y viaja en el archivo del proyecto. El resto (idioma,
   // pestaña, instrumento a la vista, MIDI…) es del equipo y se queda en el navegador.
@@ -81,7 +81,7 @@
   const ui = {
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
     more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
-    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0, fileMsg: null,
+    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0, fileMsg: null, startBar: 0,
   };
 
   let key;
@@ -93,6 +93,7 @@
     try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ }
     // Cualquier cambio puede afectar a lo que canta la voz: se vuelve a cantar si hace falta.
     refreshVoice();
+    renderTimeline();
   }
 
   function snapshot() {
@@ -274,7 +275,7 @@
         <input type="range" id="c-swing" min="50" max="75" step="1" value="${state[swingKey()]}" aria-label="Swing ${swingScope()}"> <span id="swing-value">${swingLabel(state[swingKey()])}</span></label>
       <select id="c-comp" aria-label="${tx('Ritmo de los acordes', 'Chord rhythm')}">${Object.entries(M.COMP).map(([id, c]) =>
         `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${tr(c.name)}</option>`).join('')}</select>
-      <button data-act="toggle-loop" aria-pressed="${state.loop}">${tx('Bucle', 'Loop')}</button>
+      <button data-act="toggle-loop" aria-pressed="${state.loop}" title="${tx('Repite la canción entera. Un bucle elegido en la línea de tiempo se repite siempre.', 'Repeats the whole song. A loop picked on the timeline always repeats.')}">${tx('Bucle', 'Loop')}</button>
       <button data-act="undo" ${ui.undo.length ? '' : 'disabled'}>${tx('Deshacer', 'Undo')}</button>
       <button data-act="clear" ${chords.length ? '' : 'disabled'}>${tx('Vaciar', 'Clear')}</button>`;
     $('c-bpm').oninput = (e) => {
@@ -688,10 +689,10 @@
     renderTransport();
   }
 
-  function drumHits(p) {
+  function drumHits(p, i, mk) {
     const stepMs = 30000 / state.bpm;
     const barMs = stepMs * M.STEPS;
-    const mel = melAt(p.i, p.mpass % state.melVerses);
+    const mel = melAt(i, mk);
     const barAt = p.next;
     return Drums.barHits(state.rings, {
       life: state.life / 100,
@@ -725,6 +726,15 @@
         const angle = (((performance.now() - p.barSeen) / barMs) % 1) * 360;
         hand.setAttribute('transform', `rotate(${angle} 220 220)`);
       }
+    }
+    const head = $('tl-head');
+    if (head && p && p.barSeen) {
+      const barMs = (30000 / state.bpm) * M.STEPS;
+      const frac = Math.min(1, (performance.now() - p.barSeen) / barMs);
+      const pos = (p.shownG + frac) / songBars();
+      head.style.left = Math.min(100, pos * 100) + '%';
+      const t = $('tl-time');
+      if (t) t.firstChild.textContent = clock((p.shownG + frac) * barMs / 1000);
     }
     if (p) requestAnimationFrame(animateHand);
   }
@@ -914,14 +924,23 @@
 
   const voiceLevel = (kind = 'lead') => (state.playVoice ? .55 * state.voiceVol / 100 * (kind === 'lead' ? 1 : state.harmonyVol / 100) : 0);
 
-  function startVoice(p, atMs) {
+  // La toma de la voz cubre todas sus estrofas. vb: compás de la toma por el que
+  // se entra; en el 0 se arranca antes para que las consonantes lleguen a tiempo.
+  // jump: la reproducción salta (bucle o posición elegida) y la toma anterior se corta.
+  function startVoice(p, { at, vb, jump }) {
+    if (jump) {
+      p.voices.forEach((v) => v.node.stop(at));
+      p.voices = [];
+    }
     const take = voiceTake();
     if (!take) return;
-    const delay = (atMs - Voice.LEAD * 1000 - performance.now()) / 1000;
-    const lead = Sound.buffer(take.samples, take.rate, delay, voiceLevel('lead'), take.harmony ? -.12 : 0);
+    const barSec = 4 * 60 / state.bpm;
+    const delay = (at - performance.now()) / 1000 - (vb === 0 ? Voice.LEAD : 0);
+    const offset = vb === 0 ? 0 : Voice.LEAD + vb * barSec;
+    const lead = Sound.buffer(take.samples, take.rate, delay, voiceLevel('lead'), take.harmony ? -.12 : 0, offset);
     if (lead) p.voices.push({ kind: 'lead', node: lead });
     if (take.harmony) {
-      const h = Sound.buffer(take.harmony, take.rate, delay, voiceLevel('harmony'), .3);
+      const h = Sound.buffer(take.harmony, take.rate, delay, voiceLevel('harmony'), .3, offset);
       if (h) p.voices.push({ kind: 'harmony', node: h });
     }
   }
@@ -1274,6 +1293,103 @@
     try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ }
   }
 
+  // Línea de tiempo --------------------------------------------------------------
+
+  const clock = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  function renderTimeline() {
+    const el = $('timeline');
+    if (!el) return;
+    if (!chords.length) {
+      el.innerHTML = `<p class="muted tl-empty">${tx('La línea de tiempo aparece cuando hay una progresión.', 'The timeline appears once there is a progression.')}</p>`;
+      return;
+    }
+    const bars = barsPerPass();
+    const total = songBars();
+    const barSec = 4 * 60 / state.bpm;
+    const r = regionOf();
+    const p = ui.playing;
+    const passes = Array.from({ length: songPasses() }, (x, k) => {
+      const mk = k % state.melVerses;
+      const vk = k % stanzaCount();
+      const cells = chords.map((c, i) => {
+        const g = k * bars + i;
+        const inLoop = r && g >= r.from && g <= r.to;
+        return `<div class="tl-bar fn-${c.fn}${inLoop ? ' in-loop' : ''}" title="${tx('Compás', 'Bar')} ${g + 1} · ${T.chordText(c, state.notation)}"><span>${nameHTML(c)}</span></div>`;
+      }).join('');
+      return `<div class="tl-pass" style="flex:${bars}">
+          <div class="tl-label" title="${tx(`Estrofa ${mk + 1} de la melodía · estrofa ${vk + 1} de la letra`, `Melody verse ${mk + 1} · lyrics verse ${vk + 1}`)}">M${mk + 1} · L${vk + 1}</div>
+          <div class="tl-bars">${cells}</div>
+        </div>`;
+    }).join('');
+    const pct = (g) => (g / total * 100) + '%';
+    const start = startBarFor();
+    el.innerHTML = `
+      <div class="tl-side">
+        <span class="tl-time" id="tl-time">${clock((p ? p.shownG : start) * barSec)}<small> / ${clock(total * barSec)}</small></span>
+        <span class="muted tl-bars-count">${total} ${tx('compases', 'bars')}</span>
+      </div>
+      <div class="tl-track" id="tl-track" title="${tx('Arrastra para elegir un bucle; haz clic para empezar ahí', 'Drag to pick a loop; click to start there')}">
+        <div class="tl-passes">${passes}</div>
+        ${r ? `<div class="tl-loop" style="left:${pct(r.from)};width:${(r.to - r.from + 1) / total * 100}%"></div>` : ''}
+        <div class="tl-sel" id="tl-sel" hidden></div>
+        <div class="tl-start" style="left:${pct(start)}" ${p ? 'hidden' : ''}></div>
+        <div class="tl-head" id="tl-head" style="left:${pct(p ? p.shownG : start)}" ${p ? '' : 'hidden'}></div>
+      </div>
+      <div class="tl-side tl-right">
+        ${r ? `<span class="tl-loop-label">${tx('Bucle', 'Loop')} ${tx('c.', 'bars')} ${r.from + 1}–${r.to + 1}</span>
+          <button data-act="region-clear">${tx('Quitar bucle', 'Clear loop')}</button>`
+          : `<span class="muted">${tx('Arrastra para hacer un bucle', 'Drag to make a loop')}</span>`}
+      </div>`;
+    bindTimeline();
+  }
+
+  // Arrastrar sobre la línea elige el bucle; un clic elige desde dónde suena.
+  function bindTimeline() {
+    const track = $('tl-track');
+    if (!track) return;
+    const barAt = (x) => {
+      const rect = track.getBoundingClientRect();
+      return Math.max(0, Math.min(songBars() - 1, Math.floor((x - rect.left) / rect.width * songBars())));
+    };
+    let drag = null;
+    const showSel = (a, b) => {
+      const sel = $('tl-sel');
+      const lo = Math.min(a, b);
+      const hi = Math.max(a, b);
+      sel.hidden = false;
+      sel.style.left = (lo / songBars() * 100) + '%';
+      sel.style.width = ((hi - lo + 1) / songBars() * 100) + '%';
+    };
+    track.onpointerdown = (e) => {
+      if (e.button !== 0) return;
+      drag = { a: barAt(e.clientX), b: null, x: e.clientX };
+      try { track.setPointerCapture(e.pointerId); } catch (err) { /* da igual */ }
+      e.preventDefault();
+    };
+    track.onpointermove = (e) => {
+      if (!drag) return;
+      if (drag.b === null && Math.abs(e.clientX - drag.x) < 5) return;
+      drag.b = barAt(e.clientX);
+      showSel(drag.a, drag.b);
+    };
+    track.onpointerup = (e) => {
+      const d = drag;
+      drag = null;
+      if (!d) return;
+      if (d.b === null) { seekBar(barAt(e.clientX)); return; }
+      state.region = { from: Math.min(d.a, d.b), to: Math.max(d.a, d.b) };
+      saveQuiet();
+      renderTimeline();
+    };
+    track.onpointercancel = () => { drag = null; renderTimeline(); };
+  }
+
+  function seekBar(g) {
+    ui.startBar = g;
+    if (ui.playing) { stop(); play(); } else renderTimeline();
+  }
+
   // Coordinación ---------------------------------------------------------------
 
   // Textos fijos de index.html: cada uno guarda su versión inglesa en data-en*.
@@ -1310,6 +1426,7 @@
   }
 
   function render() {
+    renderTimeline();
     renderControls();
     renderFile();
     renderStrip();
@@ -1605,6 +1722,7 @@
       renderLetraGrid();
     },
     'file-save'() { saveProject(); },
+    'region-clear'() { state.region = null; saveQuiet(); renderTimeline(); },
     'file-open'() { $('file-input').click(); },
     lang(el) {
       if (state.lang === el.dataset.v) return;
@@ -1685,22 +1803,31 @@
   function scheduleStep(p, base) {
     const stepMs = 30000 / state.bpm;
     const at = base;
-    const { i, s } = p;
+    const { g, s } = p;
+    const bars = barsPerPass();
+    const i = g % bars;
+    const pass = Math.floor(g / bars);
+    // Melodía y voz recorren sus estrofas cada una por su cuenta.
+    const mk = pass % state.melVerses;
+    const vk = pass % stanzaCount();
     const { hits } = M.COMP[state.comp];
     const hit = hits.indexOf(s);
-    if (s === 0) p.queue.push(...drumHits(p));
+    if (s === 0) {
+      p.queue.push(...drumHits(p, i, mk));
+      // La voz se vuelve a lanzar si el compás siguiente es un salto o empieza su toma.
+      const ng = nextBar(g);
+      if (ng >= 0) {
+        const vb = voiceBar(ng);
+        const jump = ng !== g + 1;
+        if (jump || vb === 0) p.voicePend = { at: base + M.STEPS * stepMs, vb, jump };
+      }
+    }
     if (hit >= 0 && chords[i]) {
       const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
       const to = hit + 1 < hits.length ? hits[hit + 1] : M.STEPS;
       const dur = M.spanMs(s, to, state.swingChords, stepMs) * .95 / 1000;
       if (v) emitChord(v.midis, dur, .15, base + M.swingShift(s, state.swingChords, stepMs), state.playChords);
     }
-    // Melodía y voz recorren sus estrofas cada una por su cuenta.
-    const mk = p.mpass % state.melVerses;
-    const vk = p.vpass % stanzaCount();
-    // La voz (todas sus estrofas en una toma) vuelve a empezar al acabar su última estrofa.
-    const lastBar = s === 0 && i === Math.max(1, chords.length) - 1;
-    if (lastBar && vk === stanzaCount() - 1 && (state.loop || p.pass + 1 < songPasses())) p.voiceAt = at + M.STEPS * stepMs;
     const n = melodyAt(p.list, i, s, mk);
     if (n) {
       const dur = M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000;
@@ -1708,7 +1835,7 @@
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
-      if (s === 0) { highlight(i, mk, vk); p.barSeen = performance.now(); }
+      if (s === 0) { highlight(i, mk, vk); p.barSeen = performance.now(); p.shownG = g; }
       movePlayhead(i, s, mk, vk);
       markVoiceNote(vk, i, s);
     }, Math.max(0, at - performance.now()));
@@ -1721,9 +1848,10 @@
     const now = performance.now();
     while (p.queue.length && p.queue[0].at < now + LOOKAHEAD_MS) fireDrum(p.queue.shift());
     // La voz arranca antes del compás: sus consonantes van antes del pulso.
-    if (p.voiceAt && p.voiceAt - Voice.LEAD * 1000 < now + LOOKAHEAD_MS) {
-      startVoice(p, p.voiceAt);
-      p.voiceAt = 0;
+    const vp = p.voicePend;
+    if (vp && vp.at - (vp.vb === 0 ? Voice.LEAD * 1000 : 0) < now + LOOKAHEAD_MS) {
+      p.voicePend = null;
+      startVoice(p, vp);
     }
     if (p.endAt) {
       if (now >= p.endAt) stop(true);
@@ -1734,35 +1862,62 @@
     const stepMs = 30000 / state.bpm;
     const late = Math.max(state.swingChords, state.swingMelody);
     while (p.next + M.swingShift(p.s, late, stepMs) < now + LOOKAHEAD_MS) {
-      const bars = Math.max(1, chords.length);
-      if (p.i >= bars) p.i = 0; // se quitó un acorde mientras sonaba
+      if (p.g >= songBars()) p.g = 0; // la canción se acortó mientras sonaba
       scheduleStep(p, p.next);
       p.next += stepMs;
       p.s += 1;
       if (p.s >= M.STEPS) {
         p.s = 0;
-        p.i += 1;
-        if (p.i >= bars) {
-          p.i = 0;
-          p.pass += 1;
-          p.mpass += 1;
-          p.vpass += 1;
-          // Sin bucle, la canción dura lo que la parte con más estrofas; la otra se repite.
-          if (!state.loop && p.pass >= songPasses()) { p.endAt = p.next; return; }
-        }
+        const ng = nextBar(p.g);
+        if (ng < 0) { p.endAt = p.next; return; }
+        p.g = ng;
       }
     }
   }
 
+  // La canción en compases: cada vuelta de la progresión es una estrofa; dura lo
+  // que la parte con más estrofas (la otra se repite).
   const songPasses = () => Math.max(state.melVerses, stanzaCount());
+  const barsPerPass = () => Math.max(1, chords.length);
+  const songBars = () => songPasses() * barsPerPass();
+  // Compás dentro de la toma de la voz (que abarca todas sus estrofas).
+  const voiceBar = (g) => (Math.floor(g / barsPerPass()) % stanzaCount()) * barsPerPass() + g % barsPerPass();
+
+  // Bucle elegido en la línea de tiempo (compases, ambos incluidos), ajustado a la canción.
+  function regionOf() {
+    const r = state.region;
+    if (!r || !chords.length) return null;
+    const last = songBars() - 1;
+    const from = Math.min(r.from, last);
+    const to = Math.min(r.to, last);
+    return from <= to ? { from, to } : null;
+  }
+
+  // Compás que sigue a g, o -1 si la canción termina. Un bucle elegido siempre se repite.
+  function nextBar(g) {
+    const r = regionOf();
+    if (r) return g >= r.from && g < r.to ? g + 1 : g >= r.to ? r.from : g + 1;
+    if (g + 1 < songBars()) return g + 1;
+    return state.loop ? 0 : -1;
+  }
+
+  function startBarFor() {
+    const r = regionOf();
+    let g = Math.min(ui.startBar || 0, songBars() - 1);
+    if (r && (g < r.from || g > r.to)) g = r.from;
+    return Math.max(0, g);
+  }
 
   function play() {
     if (!canPlay()) return;
+    const g = startBarFor();
+    const vb = voiceBar(g);
     // Con voz lista se deja margen para que entren sus primeras consonantes.
-    const lead = voiceTake() ? Voice.LEAD * 1000 : 0;
+    const lead = voiceTake() && vb === 0 ? Voice.LEAD * 1000 : 0;
     const next = performance.now() + 40 + lead;
-    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next, pass: 0, mpass: 0, vpass: 0 };
+    ui.playing = { g, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, shownG: g, voices: [], voicePend: { at: next, vb, jump: false } };
     renderTransport();
+    renderTimeline();
     animateHand();
   }
 
@@ -1776,6 +1931,7 @@
     document.querySelectorAll('.playhead').forEach((h) => { h.hidden = true; });
     highlight(-1);
     renderTransport();
+    renderTimeline();
   }
 
   // Un temporizador en un worker sigue a su ritmo con la ventana en segundo plano,

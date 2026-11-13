@@ -28,6 +28,13 @@ than the other, it starts over: with 3 melody verses and 2 lyrics verses, the vo
 verse 1 again on the third pass. Without loop, the song lasts as long as the part with more
 verses.
 
+## Timeline
+
+The bar at the bottom of the screen, the same on every tab, shows the whole song bar by
+bar, with the verses of each pass (M = melody verse, L = lyrics verse), its length and where
+playback is. Drag across it to pick a section of bars to loop; “Clear loop” removes it and
+the song plays normally again. Click a bar to start playback from there.
+
 ## Projects
 
 In the Project menu, “Download project” saves the song to a `.enlace.json` file:
