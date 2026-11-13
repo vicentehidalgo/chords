@@ -483,3 +483,11 @@ body.is-dropping::after {
 #file .muted { font-size: 12.5px; margin: 0; }
 /* En escritorio el menú Proyecto queda cerca del borde derecho: se abre hacia la izquierda. */
 @media (min-width: 961px) { .menu-panel#file { left: auto; right: 0; } }
+.stanza-chip { position: relative; touch-action: none; user-select: none; -webkit-user-select: none; }
+.stanza-chip.is-dragging { opacity: .45; cursor: grabbing; }
+body.is-reordering, body.is-reordering * { cursor: grabbing !important; }
+.stanza-chip.drop-before::before, .stanza-chip.drop-after::after {
+  content: ""; position: absolute; top: -3px; bottom: -3px; width: 3px; border-radius: 2px; background: var(--accent); z-index: 2;
+}
+.stanza-chip.drop-before::before { left: -2px; }
+.stanza-chip.drop-after::after { right: -2px; }

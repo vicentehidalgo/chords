@@ -959,15 +959,37 @@
   }
 
   // Selector de estrofas, común a Melodía y Letra: la estrofa elegida es la misma en las dos.
+  // Mueve la estrofa `from` a la posición `to` de una parte, con todo lo suyo.
+  function moveStanza(part, from, to) {
+    const count = part === 'm' ? state.melVerses : stanzaCount();
+    if (from === to || from < 0 || to < 0 || from >= count || to >= count) return;
+    snapshot();
+    const move = (arr) => { arr.splice(to, 0, arr.splice(from, 1)[0]); };
+    const field = part === 'm' ? 'mels' : 'vmel';
+    // Cada compás guarda sus melodías por estrofa: se completan antes de moverlas.
+    state.prog.forEach((it, i) => { barW(field, i, count - 1); move(it[field]); });
+    if (part === 'v') move(state.stanzas);
+    // La estrofa elegida sigue siendo la misma, esté donde esté ahora.
+    const key = part === 'm' ? 'mstanza' : 'stanza';
+    const sel = state[key];
+    if (sel === from) state[key] = to;
+    else if (from < sel && to >= sel) state[key] = sel - 1;
+    else if (from > sel && to <= sel) state[key] = sel + 1;
+    ui.cursor = null;
+    save();
+    if (part === 'm') renderMelody(); else { renderLetra(); renderSong(); }
+  }
+
   // part 'm': estrofas de la melodía; 'v': de la letra. Cada parte tiene las suyas.
   function stanzaBar(part) {
     const count = part === 'm' ? state.melVerses : stanzaCount();
     const cur = part === 'm' ? state.mstanza : state.stanza;
     const chips = Array.from({ length: count }, (x, k) =>
-      `<button class="stanza-chip" data-act="stanza" data-part="${part}" data-v="${k}" data-k="${k}" aria-pressed="${k === cur}">${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
+      `<button class="stanza-chip" data-act="stanza" data-part="${part}" data-v="${k}" data-k="${k}" aria-pressed="${k === cur}"${count > 1 ? ` title="${tx('Arrastra para cambiar el orden', 'Drag to reorder')}"` : ''}>${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
     return `<div class="row">
           <div class="seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
-          <button data-act="stanza-add" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Empieza con la melodía de la estrofa actual', 'Starts with the melody of the current verse')}">${tx('+ Estrofa', '+ Verse')}</button>
+          <button data-act="stanza-add" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Añade una estrofa vacía al final', 'Adds an empty verse at the end')}">${tx('+ Estrofa', '+ Verse')}</button>
+          <button data-act="stanza-dup" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx(`Copia la estrofa ${cur + 1} justo después de ella`, `Copies verse ${cur + 1} right after it`)}">${tx('Duplicar', 'Duplicate')}</button>
           ${count > 1 ? `<button data-act="stanza-remove" data-part="${part}" title="${tx('Quitar la estrofa', 'Remove verse')} ${cur + 1}">${tx('Quitar', 'Remove')}</button>` : ''}
         </div>`;
   }
@@ -1494,28 +1516,45 @@
       save();
       if (el.dataset.part === 'm') renderMelody(); else renderLetra();
     },
-    // Una estrofa nueva suele variar la anterior: empieza con su melodía.
+    // Estrofa vacía al final.
     'stanza-add'(el) {
+      const part = el.dataset.part;
+      if ((part === 'm' ? state.melVerses : stanzaCount()) >= MAX_STANZAS) return;
       snapshot();
-      if (el.dataset.part === 'm') {
-        const from = state.mstanza;
-        const k = state.melVerses;
+      if (part === 'm') {
         state.melVerses += 1;
-        state.prog.forEach((it, i) => { barW('mels', i, k).splice(0, M.STEPS, ...melAt(i, from)); });
-        state.mstanza = k;
-        save();
-        renderMelody();
-        return;
+        state.mstanza = state.melVerses - 1;
+      } else {
+        state.stanzas.push({ lyrics: '' });
+        state.stanza = state.stanzas.length - 1;
       }
-      const from = state.stanza;
-      state.stanzas.push({ lyrics: '' });
-      const k = state.stanzas.length - 1;
-      state.prog.forEach((it, i) => { vmelW(i, k).splice(0, M.STEPS, ...((it.vmel && it.vmel[from]) || EMPTY_BAR)); });
-      state.stanza = k;
+      ui.cursor = null;
       save();
-      renderLetra();
-      renderSong();
-      $('c-lyrics').focus();
+      if (part === 'm') renderMelody();
+      else { renderLetra(); renderSong(); $('c-lyrics').focus(); }
+    },
+    // Copia de la estrofa elegida, justo detrás de ella; queda elegida la copia.
+    'stanza-dup'(el) {
+      const part = el.dataset.part;
+      const count = part === 'm' ? state.melVerses : stanzaCount();
+      if (count >= MAX_STANZAS) return;
+      snapshot();
+      const k = part === 'm' ? state.mstanza : state.stanza;
+      const field = part === 'm' ? 'mels' : 'vmel';
+      state.prog.forEach((it, i) => {
+        barW(field, i, count - 1);
+        it[field].splice(k + 1, 0, it[field][k].slice());
+      });
+      if (part === 'm') {
+        state.melVerses += 1;
+        state.mstanza = k + 1;
+      } else {
+        state.stanzas.splice(k + 1, 0, JSON.parse(JSON.stringify(state.stanzas[k])));
+        state.stanza = k + 1;
+      }
+      ui.cursor = null;
+      save();
+      if (part === 'm') renderMelody(); else { renderLetra(); renderSong(); }
     },
     'stanza-remove'(el) {
       snapshot();
@@ -1754,7 +1793,63 @@
 
   // Eventos --------------------------------------------------------------------
 
+  // Arrastrar una estrofa la cambia de sitio. Con eventos de puntero, para que
+  // funcione también con el dedo; un toque sin arrastrar sigue siendo un clic.
+  let chipDrag = null;
+  let skipClick = false;
+  const clearDropMarks = () => document.querySelectorAll('.stanza-chip.drop-before, .stanza-chip.drop-after')
+    .forEach((c) => c.classList.remove('drop-before', 'drop-after'));
+
+  document.addEventListener('pointerdown', (e) => {
+    const chip = e.target.closest('.stanza-chip');
+    if (!chip || e.button !== 0) return;
+    const group = chip.parentElement.querySelectorAll('.stanza-chip');
+    if (group.length < 2) return;
+    chipDrag = { chip, part: chip.dataset.part, from: Number(chip.dataset.k), x: e.clientX, y: e.clientY, moved: false, to: null };
+  });
+  document.addEventListener('pointermove', (e) => {
+    const d = chipDrag;
+    if (!d) return;
+    if (!d.moved) {
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+      d.moved = true;
+      d.chip.classList.add('is-dragging');
+      document.body.classList.add('is-reordering');
+      try { d.chip.setPointerCapture(e.pointerId); } catch (err) { /* sin captura también funciona */ }
+    }
+    e.preventDefault();
+    clearDropMarks();
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const target = under && under.closest(`.stanza-chip[data-part="${d.part}"]`);
+    if (!target || target.parentElement !== d.chip.parentElement) { d.to = null; return; }
+    const r = target.getBoundingClientRect();
+    const after = e.clientX > r.left + r.width / 2;
+    let to = Number(target.dataset.k) + (after ? 1 : 0);
+    if (to > d.from) to -= 1;
+    d.to = to;
+    if (to !== d.from) target.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+  const endChipDrag = () => {
+    const d = chipDrag;
+    chipDrag = null;
+    if (!d) return;
+    clearDropMarks();
+    d.chip.classList.remove('is-dragging');
+    document.body.classList.remove('is-reordering');
+    if (!d.moved) return;
+    // El clic que el navegador manda al soltar no debe seleccionar ninguna estrofa:
+    // se descarta, y el cambio de orden se hace justo después (los botones siguen en su sitio).
+    skipClick = true;
+    setTimeout(() => {
+      skipClick = false;
+      if (d.to !== null) moveStanza(d.part, d.from, d.to);
+    }, 0);
+  };
+  document.addEventListener('pointerup', endChipDrag);
+  document.addEventListener('pointercancel', () => { if (chipDrag) chipDrag.moved = false; endChipDrag(); });
+
   document.addEventListener('click', (e) => {
+    if (skipClick) { skipClick = false; e.preventDefault(); return; }
     const cell = e.target.closest('[data-cell]');
     if (cell) {
       const [track, i, s, off] = cell.dataset.cell.split(':');

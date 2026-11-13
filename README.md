@@ -21,8 +21,9 @@ is available in Spanish and English (selector at the top right).
 
 The melody and the lyrics each have their own verses (up to 8), and their counts are
 independent. Each verse plays over one pass of the progression. Melody verses are set in
-the Melody tab and lyrics verses (lyrics plus the voice melody) in the Lyrics tab; adding a
-verse copies the melody of the current one so you can vary it. If one part has fewer verses
+the Melody tab and lyrics verses (lyrics plus the voice melody) in the Lyrics tab; “+ Verse” adds an
+empty verse at the end and “Duplicate” copies the selected verse right after it. Drag a verse button to change
+the order (it works with a mouse or a finger). If one part has fewer verses
 than the other, it starts over: with 3 melody verses and 2 lyrics verses, the voice sings
 verse 1 again on the third pass. Without loop, the song lasts as long as the part with more
 verses.
