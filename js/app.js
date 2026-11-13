@@ -81,7 +81,7 @@
   const ui = {
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
     more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
-    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0, fileMsg: null, startBar: 0,
+    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0, fileMsg: null, startBar: 0, copyPick: false,
   };
 
   let key;
@@ -1059,12 +1059,34 @@
         ${legendHTML()}
         <div class="row">
           <button class="primary" data-act="vmel-generate" title="${tx('Una nota por sílaba, con las frases en compases enteros', 'One note per syllable, each phrase in whole bars')}">${sylls.length ? tx('Ajustar a la letra', 'Fit to lyrics') : tx('Proponer melodía', 'Suggest a melody')}</button>
-          <button data-act="vmel-copy" title="${tx('Copia aquí la melodía de la pestaña Melodía', 'Copy the melody from the Melody tab')}">${tx('Copiar de Melodía', 'Copy from Melody')}</button>
+          <button data-act="vmel-copy" aria-expanded="${ui.copyPick}" title="${tx('Copia aquí la melodía de una estrofa de la pestaña Melodía', 'Copy the melody of a verse from the Melody tab')}">${tx('Copiar de Melodía', 'Copy from Melody')}</button>
           <button data-act="vmel-clear">${tx('Borrar', 'Clear')}</button>
         </div>
       </div>
+      ${ui.copyPick ? copyPickHTML() : ''}
       <div class="mel-scroll">${gridHTML('v', al.pairs)}</div>${warn}`;
     el.querySelector('.mel-scroll').scrollLeft = left;
+  }
+
+  function copyMelody(mk) {
+    snapshot();
+    state.prog.forEach((it, i) => { vmelW(i, state.stanza).splice(0, M.STEPS, ...melAt(i, mk)); });
+    ui.cursor = null;
+    ui.copyPick = false;
+    save();
+    renderLetraGrid();
+  }
+
+  // Qué estrofa de la melodía copiar. Se propone la que suena junto a esta la primera vez.
+  function copyPickHTML() {
+    const suggested = state.stanza % state.melVerses;
+    const opts = Array.from({ length: state.melVerses }, (x, k) =>
+      `<button data-act="vmel-copy-from" data-v="${k}" class="${k === suggested ? 'is-suggested' : ''}" ${k === suggested ? `title="${tx('Suena junto a esta estrofa', 'Plays alongside this verse')}"` : ''}>${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
+    return `<div class="copy-pick" role="group" aria-label="${tx('Estrofa de la melodía', 'Melody verse')}">
+        <span class="muted">${tx(`Copiar a la estrofa ${state.stanza + 1} de la letra la melodía de:`, `Copy into lyrics verse ${state.stanza + 1} the melody of:`)}</span>
+        ${opts}
+        <button class="link" data-act="vmel-copy-cancel">${tx('Cancelar', 'Cancel')}</button>
+      </div>`;
   }
 
   function alignBars(pairs, k) {
@@ -1628,7 +1650,7 @@
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
     stanza(el) {
       if (el.dataset.part === 'm') state.mstanza = Number(el.dataset.v);
-      else state.stanza = Number(el.dataset.v);
+      else { state.stanza = Number(el.dataset.v); ui.copyPick = false; }
       ui.cursor = null;
       save();
       if (el.dataset.part === 'm') renderMelody(); else renderLetra();
@@ -1705,15 +1727,13 @@
       save();
       renderLetraGrid();
     },
+    // Con una sola estrofa de melodía se copia directamente; si hay más, se pregunta cuál.
     'vmel-copy'() {
-      snapshot();
-      // La estrofa de la melodía que suena junto a esta la primera vez.
-      const mk = state.stanza % state.melVerses;
-      state.prog.forEach((it, i) => { vmelW(i, state.stanza).splice(0, M.STEPS, ...melAt(i, mk)); });
-      ui.cursor = null;
-      save();
-      renderLetraGrid();
+      if (state.melVerses > 1) { ui.copyPick = !ui.copyPick; renderLetraGrid(); return; }
+      copyMelody(0);
     },
+    'vmel-copy-from'(el) { copyMelody(Number(el.dataset.v)); },
+    'vmel-copy-cancel'() { ui.copyPick = false; renderLetraGrid(); },
     'vmel-clear'() {
       snapshot();
       state.prog.forEach((it, i) => { vmelW(i, state.stanza).fill(null); });

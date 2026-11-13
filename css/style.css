@@ -534,3 +534,7 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; }
   .tl-track { order: 3; flex-basis: 100%; }
   .tl-side { min-width: 0; }
 }
+.copy-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: -2px 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); }
+.copy-pick .muted { font-size: 13px; margin-right: 2px; }
+.copy-pick .is-suggested { border-color: var(--accent); }
+.copy-pick button.link { padding: 0 4px; }
