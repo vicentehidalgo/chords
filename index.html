@@ -3,13 +3,17 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Enlace · acordes y melodías</title>
+  <title>Enlace</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <header class="top">
     <h1>Enlace</h1>
     <div class="controls" id="controls"></div>
+    <details class="menu">
+      <summary data-en="Project">Proyecto</summary>
+      <div class="menu-panel" id="file"></div>
+    </details>
     <details class="menu">
       <summary data-en="Settings">Ajustes</summary>
       <div class="menu-panel" id="options"></div>
@@ -47,6 +51,7 @@
     <div class="transport" id="transport"></div>
   </nav>
 
+  <input type="file" id="file-input" accept=".json,application/json" hidden>
   <main>
     <div class="tab tab-chords" id="tab-chords" role="tabpanel" aria-labelledby="tab-btn-chords">
       <section class="strip" aria-label="Progresión" data-en-label="Progression" id="strip"></section>
@@ -62,7 +67,6 @@
 
     <div class="tab tab-melody" id="tab-melody" role="tabpanel" aria-labelledby="tab-btn-melody">
       <section class="panel melody" aria-label="Melodía" data-en-label="Melody" id="melody"></section>
-      <section class="panel" aria-label="Notas sobre el acorde" data-en-label="Notes over the chord" id="melody-map"></section>
     </div>
 
     <div class="tab tab-drums" id="tab-drums" role="tabpanel" aria-labelledby="tab-btn-drums">

@@ -1,69 +1,96 @@
 # Enlace
 
-Web para encadenar acordes y construir melodías sobre ellos, en guitarra y piano,
-con 29 escalas y modos. No necesita instalación: abre `index.html` en el navegador.
-La interfaz está en español y en inglés (selector arriba a la derecha).
+A web app for chaining chords and building melodies over them, on guitar and piano, in
+29 scales and modes. Nothing to install: open `index.html` in your browser. The interface
+is available in Spanish and English (selector at the top right).
 
-- `js/theory.js`: escalas, acordes, ortografía y grados romanos.
-- `js/suggest.js`: puntúa el siguiente acorde y explica por qué. Aquí están las
-  tablas de pesos y las progresiones conocidas.
-- `js/melody.js`: papel de cada nota sobre un acorde, pistas y generador.
-- `js/voicings.js`: digitaciones de guitarra y posiciones de piano.
-- `js/drums.js`: rueda de ritmos, repartos euclídeos y variación entre compases.
-- `js/midi.js`: salida a un instrumento externo.
-- `js/i18n.js`: textos en inglés de la interfaz y de los datos.
-- `js/spanish.js`: de la letra en español a sílabas con su pronunciación (IPA).
-- `js/voice.js`: reparte la letra sobre la melodía y pide al motor que la cante.
-- `voice/`: el puente en Rust con el motor de voz; `js/voz-wasm.js` es su compilado.
-- `js/diagrams.js`, `js/audio.js`, `js/app.js`: dibujos, sonido e interfaz.
+- `js/theory.js`: scales, chords, note spelling and Roman numerals.
+- `js/suggest.js`: scores the next chord and explains why. The weight tables and the
+  well-known progressions live here.
+- `js/melody.js`: the role of each note over a chord, hints and the melody generator.
+- `js/voicings.js`: guitar fingerings and piano voicings.
+- `js/drums.js`: the rhythm wheel, Euclidean patterns and variation between bars.
+- `js/midi.js`: output to an external instrument.
+- `js/i18n.js`: English texts for the interface and the data.
+- `js/spanish.js`: Spanish lyrics to syllables with their pronunciation (IPA).
+- `js/voice.js`: spreads the lyrics over the melody and asks the engine to sing them.
+- `voice/`: the Rust bridge to the voice engine; `js/voz-wasm.js` is its compiled build.
+- `js/diagrams.js`, `js/audio.js`, `js/app.js`: drawings, sound and interface.
 
-## Atajos
+## Verses
 
-- `Tab`: pasa a la pestaña siguiente (Progresión, Melodía, Percusión, Letra, Voz). `Mayús+Tab` recorre los controles.
-- `Espacio`: reproduce o para. `Cmd/Ctrl+Z`: deshace.
+The melody and the lyrics each have their own verses (up to 8), and their counts are
+independent. Each verse plays over one pass of the progression. Melody verses are set in
+the Melody tab and lyrics verses (lyrics plus the voice melody) in the Lyrics tab; adding a
+verse copies the melody of the current one so you can vary it. If one part has fewer verses
+than the other, it starts over: with 3 melody verses and 2 lyrics verses, the voice sings
+verse 1 again on the third pass. Without loop, the song lasts as long as the part with more
+verses.
+
+## Projects
+
+In the Project menu, “Download project” saves the song to a `.enlace.json` file:
+progression, melody, drums, lyrics with their verses, voice, tempo and swing. “Open…” (or
+dropping the file onto the page) brings it back; if you open one by mistake, Undo returns
+to the song you had. Language, the open tab and the MIDI setup are not stored in the file:
+they belong to your machine. The browser tab shows the name of the open project.
+
+## Shortcuts
+
+- `Tab`: next tab (Progression, Melody, Drums, Lyrics, Voice). `Shift+Tab` moves through the controls.
+- `Space`: play or stop. `Cmd/Ctrl+Z`: undo.
+- `Cmd/Ctrl+S`: download the project. `Cmd/Ctrl+O`: open one.
+
+## Swing
+
+Each part (chords, melody, drums and voice) has its own swing. The swing slider in the
+transport bar controls the one for the tab you are on; Lyrics and Voice share the voice’s.
 
 ## MIDI
 
-Conecta el instrumento por USB y pulsa «Conectar instrumento». Eliges qué enviar
-(progresión, melodía, percusión o cualquier combinación) y por qué canal. La percusión
-usa el mapa General MIDI, por defecto en el canal 10. Funciona en Chrome y Edge; Safari
-no tiene Web MIDI.
+Plug the instrument in over USB and press “Connect instrument”. You choose what to send
+(progression, melody, drums or any combination) and on which channel. Drums use the
+General MIDI map, on channel 10 by default. Works in Chrome and Edge; Safari has no Web MIDI.
 
-## Voz
+## Voice
 
-En la pestaña Letra se escribe lo que canta la voz: la letra y su propia melodía, en una
-rejilla como la de Melodía pero independiente de ella. Se pueden tener varias estrofas;
-cada una suena en una vuelta de la progresión, una tras otra. Una sílaba por nota: «-»
-alarga la sílaba anterior una nota más, «_» une dos palabras en una sílaba (`de_amor`) y
-la puntuación marca dónde respirar. «Ajustar a la letra» propone una melodía con una nota
-por sílaba y cada frase en compases enteros.
+The Lyrics tab is where you write what the voice sings: the lyrics and their own melody,
+on a grid like the Melody one but independent of it. You can have several verses; each
+plays over one pass of the progression, one after another. One syllable per note: “-”
+holds the previous syllable one more note, “_” joins two words into one syllable
+(`de_amor`, for Spanish) and punctuation marks where to breathe. “Fit to lyrics” suggests a
+melody with one note per syllable and each phrase in whole bars.
 
-La pestaña Voz muestra la canción entera y el sonido:
+The Voice tab shows the whole song and the sound controls:
 
-- **Fuerza**: la presión del aire, que sube el volumen y empuja la voz. Cada estrofa puede
-  ir suave, normal o fuerte (se elige en Letra).
-- **Segunda voz**: una armonía automática dentro de la escala (3ª arriba, 3ª abajo o 6ª
-  abajo), con su propio cuerpo y volumen. En Letra se elige en qué estrofas canta.
-- **Sala**: reverberación y un eco que cae a tempo (a la corchea, a la corchea con
-  puntillo o a la negra) y se reajusta al cambiar el tempo. Sigue sola la tonalidad, el tempo y el
-swing de la canción, y ajusta el vibrato al pulso. A mano se eligen el cuerpo (hombre,
-mujer o niño), el acento (España o Latinoamérica), la octava, el vibrato, el aire, el
-brillo y el volumen.
+- **Body, octave and timbre**: man, woman or child; the octave (automatic or fixed);
+  vibrato, breath, brightness and volume. In Spanish you also pick the accent (Spain or
+  Latin America).
+- **Power**: air pressure, which raises the volume and pushes the voice. Each verse can be
+  soft, normal or loud (chosen in Lyrics).
+- **Second voice**: an automatic harmony inside the scale (3rd above, 3rd below or 6th
+  below), with its own body and volume. In Lyrics you choose which verses it sings.
+- **Room**: reverb and an echo that falls on the beat (every eighth note, dotted eighth or
+  quarter note) and adjusts when the tempo changes.
 
-La voz la genera [CHIMERA](https://github.com/jamesondh/chimera-vocal-synth), un modelo
-físico de garganta y boca escrito en Rust (licencia MIT, `voice/CHIMERA-LICENSE`). Va
-compilado a WebAssembly dentro de `js/voz-wasm.js`, así que la app sigue abriéndose con
-doble clic. Para recompilarlo hace falta Rust con el destino `wasm32-unknown-unknown`:
+The voice follows the song’s key, tempo and swing on its own, and fits the vibrato to the
+beat.
+
+The voice is generated by [CHIMERA](https://github.com/jamesondh/chimera-vocal-synth), a
+physical model of the throat and mouth written in Rust (MIT license,
+`voice/CHIMERA-LICENSE`). It is compiled to WebAssembly inside `js/voz-wasm.js`, so the app
+still opens with a double click. Rebuilding it needs Rust with the
+`wasm32-unknown-unknown` target:
 
     voice/build.sh
 
-Cada idioma canta con sus fonemas: en español, con las reglas de `js/spanish.js` (y acento
-de España o Latinoamérica); en inglés, con el silabeo del propio motor y el diccionario de
-pronunciación CMU (`js/cmudict.js`, que se carga al pasar al inglés; licencia en
-`voice/CMUDICT-LICENSE`). Para regenerarlo: `voice/dict.sh`.
+Each language sings with its own phonemes: Spanish with the rules in `js/spanish.js` (and
+a Spain or Latin American accent); English with the engine’s own syllabification and the
+CMU Pronouncing Dictionary (`js/cmudict.js`, loaded when you switch to English; license in
+`voice/CMUDICT-LICENSE`). To regenerate it: `voice/dict.sh`.
 
-La voz solo suena en el navegador: no se envía por MIDI.
+The voice only plays in the browser: it is not sent over MIDI.
 
-Pruebas del motor, desde esta carpeta:
+Engine tests, from this folder:
 
     /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc tests/run.js

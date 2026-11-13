@@ -216,24 +216,6 @@ main { padding: 12px 20px 16px; }
 .vnav { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .vnav button { padding: 0 9px; }
 
-.roles { display: grid; gap: 5px; }
-.roles > div { display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: baseline; }
-.roles dt { font-size: 13px; color: var(--ink-2); }
-.roles dd b { font: 600 15px var(--serif); padding: 0 7px; border-radius: 4px; display: inline-block; margin: 0 2px 2px 0; }
-.role-safe dd b { background: var(--safe-bg); }
-.role-tension dd b { background: var(--tension-bg); }
-.role-avoid dd b { background: var(--avoid-bg); }
-
-/* Mapa de notas bajo la melodía */
-.map { display: flex; gap: 12px 20px; align-items: center; flex-wrap: wrap; }
-.map-side { flex: 0 0 280px; }
-.map-side h2 { margin-bottom: 8px; }
-.map-instruments { flex: 1 1 400px; min-width: 0; display: flex; gap: 12px; align-items: center; }
-.neck { flex: 1 1 0; min-width: 0; overflow-x: auto; }
-.neck svg { display: block; width: 100%; min-width: 480px; max-height: 165px; }
-.keys { flex: 1 1 0; min-width: 0; }
-.keys svg { display: block; width: 100%; max-height: 120px; }
-
 /* SVG: guitarra */
 .g-fret { stroke: var(--line); stroke-width: 1.2; }
 .g-string { stroke: var(--ink-2); stroke-width: 1; }
@@ -255,15 +237,10 @@ main { padding: 12px 20px 16px; }
 .p-mark.is-tension { fill: var(--tension); }
 .p-mark.is-avoid { fill: var(--surface); stroke: var(--avoid); stroke-width: 1.6; }
 .p-label { fill: #fff; font: 600 6.5px var(--sans); }
-.n-fret { stroke: var(--line); stroke-width: 1.5; }
-.n-nut { stroke: var(--ink); stroke-width: 4; }
-.n-string { stroke: var(--ink-2); stroke-width: .8; }
-.n-num { fill: var(--ink-2); font: 11px var(--sans); }
-.n-label { fill: #fff; font: 600 9px var(--sans); }
-.is-avoid + .n-label { fill: var(--avoid); }
 
 /* Melodía */
 .help { margin-bottom: 6px; font-size: 13px; }
+.mel-sub { margin-bottom: 4px; }
 .mel-legend { display: flex; gap: 4px 14px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
 .mel-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
 .mel-legend .r-chord i { background: var(--safe-bg); }
@@ -492,3 +469,17 @@ button.link.inline { padding: 0; font: inherit; }
 .lang button:first-child { border-radius: 5px 0 0 5px; margin-left: 0; }
 .lang button:last-child { border-radius: 0 5px 5px 0; }
 .swing-scope { font-size: 11px; color: var(--ink-2); border: 1px solid var(--line); border-radius: 99px; padding: 0 6px; min-width: 52px; text-align: center; }
+
+/* Proyecto */
+#c-name { width: 100%; padding: 6px 8px; font: 15px var(--serif); color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; }
+.file-msg { margin: 0; font-size: 13px; }
+.file-msg.is-ok { color: var(--fn-t); }
+.file-msg.is-error { color: var(--accent); }
+body.is-dropping::after {
+  content: ""; position: fixed; inset: 8px; border: 3px dashed var(--accent); border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent); pointer-events: none; z-index: 50;
+}
+#file { width: min(400px, calc(100vw - 32px)); flex-direction: column; align-items: stretch; gap: 10px; }
+#file .muted { font-size: 12.5px; margin: 0; }
+/* En escritorio el menú Proyecto queda cerca del borde derecho: se abre hacia la izquierda. */
+@media (min-width: 961px) { .menu-panel#file { left: auto; right: 0; } }

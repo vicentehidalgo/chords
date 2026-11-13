@@ -22,8 +22,15 @@
     stanza: 0, voiceBody: 'female', accent: 'es', octave: 'auto',
     vibrato: 35, breath: 15, bright: 25, voiceVol: 80, playVoice: true, force: 55,
     harmony: 'off', harmonyBody: 'male', harmonyVol: 70, reverb: 25, echo: 0, echoTime: 'dotted',
-    prog: [],
+    prog: [], name: '', melVerses: 1, mstanza: 0,
   };
+  // Lo que es de la canción y viaja en el archivo del proyecto. El resto (idioma,
+  // pestaña, instrumento a la vista, MIDI…) es del equipo y se queda en el navegador.
+  const SONG_KEYS = ['name', 'tonic', 'scale', 'level', 'bpm', 'loop', 'comp', 'prog', 'rings', 'life',
+    'playChords', 'playMelody', 'playDrums', 'playVoice', 'stanzas', 'stanza', 'melVerses', 'mstanza',
+    'swingChords', 'swingMelody', 'swingDrums', 'swingVoice',
+    'voiceBody', 'accent', 'octave', 'vibrato', 'breath', 'bright', 'voiceVol', 'force',
+    'harmony', 'harmonyBody', 'harmonyVol', 'reverb', 'echo', 'echoTime'];
   const state = { ...DEFAULTS };
   try {
     Object.assign(state, JSON.parse(localStorage.getItem(STORE) || '{}'));
@@ -35,19 +42,34 @@
     delete state.midiSend;
   }
 
-  // La letra pasó a estar por estrofas, cada una con su melodía para la voz.
-  // Antes la voz cantaba la melodía instrumental: se copia para no perder nada.
-  if (!Array.isArray(state.stanzas) || !state.stanzas.length) {
-    state.stanzas = [{ lyrics: state.lyrics || '' }];
-    if (state.lyrics) state.prog.forEach((it) => { if (!it.vmel) it.vmel = [it.mel.slice()]; });
-  }
-  delete state.lyrics;
+  const MAX_VERSES = 8;
 
-  // El swing pasó a ser de cada parte; las versiones anteriores tenían uno común.
-  ['swingChords', 'swingMelody', 'swingDrums', 'swingVoice'].forEach((k) => {
-    if (typeof state[k] !== 'number') state[k] = typeof state.swing === 'number' ? state.swing : 50;
-  });
-  delete state.swing;
+  // Pone al día una canción guardada con una versión anterior (en el navegador o en un archivo).
+  function migrate(o) {
+    // La letra pasó a estar por estrofas, cada una con su melodía para la voz.
+    // Antes la voz cantaba la melodía instrumental: se copia para no perder nada.
+    if (!Array.isArray(o.stanzas) || !o.stanzas.length) {
+      o.stanzas = [{ lyrics: o.lyrics || '' }];
+      if (o.lyrics) (o.prog || []).forEach((it) => { if (!it.vmel) it.vmel = [(it.mel || (it.mels && it.mels[0]) || []).slice()]; });
+    }
+    delete o.lyrics;
+    // La melodía instrumental pasó a ser una por estrofa, como la de la voz.
+    (o.prog || []).forEach((it) => {
+      if (!Array.isArray(it.mels)) it.mels = Array.isArray(it.mel) ? [it.mel] : [];
+      delete it.mel;
+    });
+    // Las estrofas de la melodía se cuentan aparte de las de la letra.
+    // (Cubre también las melodías guardadas por estrofa antes de que hubiera recuento.)
+    const stored = Number.isInteger(o.melVerses) && o.melVerses > 0 ? o.melVerses : 1;
+    o.melVerses = Math.min(MAX_VERSES, Math.max(stored, ...(o.prog || []).map((it) => it.mels.length)));
+    // El swing pasó a ser de cada parte; las versiones anteriores tenían uno común.
+    ['swingChords', 'swingMelody', 'swingDrums', 'swingVoice'].forEach((k) => {
+      if (typeof o[k] !== 'number') o[k] = typeof o.swing === 'number' ? o.swing : 50;
+    });
+    delete o.swing;
+    return o;
+  }
+  migrate(state);
 
   // Idioma: el guardado o, la primera vez, el del navegador.
   if (state.lang !== 'es' && state.lang !== 'en') {
@@ -59,7 +81,7 @@
   const ui = {
     sel: state.prog.length - 1, preview: null, previewG: 0, previewP: 0,
     more: false, undo: [], seed: Date.now() % 100000, cursor: null, playing: null, midiError: null,
-    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0,
+    voice: { key: null, status: 'idle', progress: 0 }, voiceTimer: 0, fileMsg: null,
   };
 
   let key;
@@ -74,7 +96,7 @@
   }
 
   function snapshot() {
-    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings, stanzas: state.stanzas, stanza: state.stanza }));
+    ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings, stanzas: state.stanzas, stanza: state.stanza, melVerses: state.melVerses, mstanza: state.mstanza }));
     if (ui.undo.length > 60) ui.undo.shift();
   }
 
@@ -86,12 +108,26 @@
     return T.fitsScale(probe, key) ? probe : T.makeChord(root, item.q, key, { kind: 'outside' });
   }
 
+  // Melodías por estrofa, guardadas en cada compás (it.mels[k] la instrumental,
+  // it.vmel[k] la de la voz) para que sigan a los acordes si se quitan o se mueven.
+  const EMPTY_BAR = Object.freeze(Array(M.STEPS).fill(null));
+  const MAX_STANZAS = MAX_VERSES;
+  const barsOf = (field, k) => state.prog.slice(0, chords.length).map((it) => (it[field] && it[field][k]) || EMPTY_BAR);
+  function barW(field, i, k) {
+    const it = state.prog[i];
+    if (!it[field]) it[field] = [];
+    while (it[field].length <= k) it[field].push(Array(M.STEPS).fill(null));
+    return it[field][k];
+  }
+  const melOf = (k) => barsOf('mels', k);
+  const melAt = (i, k) => (state.prog[i] && state.prog[i].mels && state.prog[i].mels[k]) || EMPTY_BAR;
+
   function itemFrom(chord) {
     return {
       off: mod(chord.root.l - key.tonic.l, 7),
       semi: mod(chord.root.pc - key.pc),
       q: chord.q.id,
-      mel: Array(M.STEPS).fill(null),
+      mels: [],
       g: null, p: null,
     };
   }
@@ -114,8 +150,9 @@
       const it = state.prog[i];
       const gl = V.guitarVoicings(c);
       const pl = V.pianoVoicings(c);
-      const gi = clampIdx(it.g !== null ? it.g : state.smooth ? V.pickGuitar(c, g) : 0, gl);
-      const pi = clampIdx(it.p !== null ? it.p : state.smooth ? V.pickPiano(c, p) : 0, pl);
+      // Sin posición elegida (o con una inválida, p. ej. de un archivo editado a mano) se busca una.
+      const gi = clampIdx(Number.isInteger(it.g) ? it.g : state.smooth ? V.pickGuitar(c, g) : 0, gl);
+      const pi = clampIdx(Number.isInteger(it.p) ? it.p : state.smooth ? V.pickPiano(c, p) : 0, pl);
       g = gl[gi] || g;
       p = pl[pi] || p;
       return { g: gl[gi], p: pl[pi], gi, pi };
@@ -362,35 +399,6 @@
     return { c, g: v.g, p: v.p, gi: v.gi, pi: v.pi, gl: V.guitarVoicings(c), pl: V.pianoVoicings(c), preview: false };
   }
 
-  function roleGroups(c) {
-    const pcs = [...new Set([...key.notes.map((n) => n.pc), ...c.pcs])];
-    const groups = { safe: [], tension: [], avoid: [], out: [] };
-    for (const pc of pcs) {
-      const r = M.role(pc, c, key);
-      const name = c.tones.find((t) => t.pc === pc);
-      const label = name ? noteLabel(name) : pcLabel(pc);
-      groups[r === 'root' || r === 'chord' ? 'safe' : r].push({ pc, label, r });
-    }
-    return groups;
-  }
-
-  function melodyMap(c) {
-    const marks = new Map();
-    const groups = roleGroups(c);
-    const short = (s) => s.slice(0, s.length > 2 && /[♯♭]$/.test(s) ? 3 : 2);
-    const cls = { root: 'is-root', chord: 'is-tone', tension: 'is-tension', avoid: 'is-avoid' };
-    [...groups.safe, ...groups.tension, ...groups.avoid].forEach((n) => marks.set(n.pc, { cls: cls[n.r], label: state.notation === 'latin' ? short(n.label) : n.label }));
-    const parts = [];
-    if (state.instrument !== 'piano') {
-      parts.push(`<div class="neck">${D.fretboard(marks, { frets: 12, label: tx('Notas sobre el mástil', 'Notes on the fretboard') })}</div>`);
-    }
-    if (state.instrument !== 'guitar') {
-      const midi = new Map();
-      for (let m = 48; m <= 83; m++) if (marks.has(mod(m))) midi.set(m, marks.get(mod(m)));
-      parts.push(`<div class="keys">${D.piano(48, 83, midi, { label: tx('Notas sobre el teclado', 'Notes on the keyboard') })}</div>`);
-    }
-    return parts.join('');
-  }
 
   function renderDetail() {
     const f = focusChord();
@@ -428,25 +436,6 @@
         <div class="bigs">${big.join('')}</div>
       </div>`;
   }
-
-  function renderMelodyMap() {
-    const c = chords[ui.sel];
-    if (!c) { $('melody-map').innerHTML = ''; return; }
-    const groups = roleGroups(c);
-    const chips = (list) => list.map((n) => `<b>${n.label}</b>`).join(' ') || `<span class="muted">${tx('ninguna', 'none')}</span>`;
-    $('melody-map').innerHTML = `<div class="map">
-      <div class="map-side">
-        <h2>${tx('Sobre', 'Over')} ${nameHTML(c)}</h2>
-        <dl class="roles">
-          <div class="role-safe"><dt>${tx('Seguras', 'Safe')}</dt><dd>${chips(groups.safe)}</dd></div>
-          <div class="role-tension"><dt>${tx('Dan tensión', 'Add tension')}</dt><dd>${chips(groups.tension)}</dd></div>
-          <div class="role-avoid"><dt>${tx('De paso', 'Passing only')}</dt><dd>${chips(groups.avoid)}</dd></div>
-        </dl>
-      </div>
-      <div class="map-instruments">${melodyMap(c)}</div>
-    </div>`;
-  }
-
   // Editor de melodía ----------------------------------------------------------
 
   function legendHTML() {
@@ -464,7 +453,8 @@
     const list = M.rows(key, chords);
     const steps = chords.length * M.STEPS;
     const hint = melodyHints(list, track);
-    const melOf = track === 'v' ? ((bars) => (i) => bars[i])(vmelOf(state.stanza)) : (i) => state.prog[i].mel;
+    const bars = track === 'v' ? vmelOf(state.stanza) : melOf(state.mstanza);
+    const barMel = (i) => bars[i];
     // En la voz, la segunda voz se dibuja como notas fantasma.
     const showHarm = track === 'v' && state.harmony !== 'off' && state.stanzas[state.stanza].harmony !== false;
 
@@ -494,7 +484,7 @@
       const cells = [];
       chords.forEach((c, i) => {
         const r = M.role(pc, c, key);
-        const mel = melOf(i).map((x) => (x === null ? null : M.snap(x, list)));
+        const mel = barMel(i).map((x) => (x === null ? null : M.snap(x, list)));
         const hm = showHarm ? mel.map((x) => (x === null ? null : Voice.harmonize(x, key, state.harmony))) : null;
         let held = false;
         let hHeld = false;
@@ -536,15 +526,17 @@
       return;
     }
 
+    state.mstanza = Math.min(Math.max(0, state.mstanza), state.melVerses - 1);
     el.innerHTML = `
       <div class="panel-head">
-        ${legendHTML()}
+        ${stanzaBar('m')}
         <div class="row">
           <button class="primary" data-act="mel-generate">${tx('Proponer melodía', 'Suggest a melody')}</button>
           <button data-act="mel-clear">${tx('Borrar melodía', 'Clear melody')}</button>
         </div>
       </div>
-      <p class="muted help">${tx('Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar. La voz tiene su propia melodía, en la pestaña Letra.', 'Click to place a note; it lasts until the next one. Click again to remove it. Rings mark good notes to continue. The voice has its own melody, in the Lyrics tab.')}</p>
+      <div class="panel-head mel-sub">${legendHTML()}</div>
+      <p class="muted help">${tx('Haz clic para poner una nota; suena hasta la siguiente. Otro clic la quita. Los aros marcan buenas notas para continuar. Cada estrofa suena en una vuelta de la progresión. La voz tiene su propia melodía y sus propias estrofas, en la pestaña Letra; si una parte tiene menos estrofas que la otra, vuelve a empezar.', 'Click to place a note; it lasts until the next one. Click again to remove it. Rings mark good notes to continue. Each verse plays over one pass of the progression. The voice has its own melody and its own verses, in the Lyrics tab; if one part has fewer verses than the other, it starts over.')}</p>
       <div class="mel-scroll">${gridHTML('m')}</div>`;
     el.querySelector('.mel-scroll').scrollLeft = left;
   }
@@ -553,7 +545,7 @@
     if (!ui.cursor || ui.cursor.track !== track) return null;
     let { i, s } = ui.cursor;
     if (!state.prog[i]) return null;
-    const cur = track === 'v' ? vmelOf(state.stanza)[i][s] : state.prog[i].mel[s];
+    const cur = (track === 'v' ? vmelOf(state.stanza) : melOf(state.mstanza))[i][s];
     if (cur === null || cur === undefined) return null;
     const prev = M.snap(cur, list);
     s += 1;
@@ -564,7 +556,7 @@
 
   function toggleCell(track, i, s, off) {
     snapshot();
-    const mel = track === 'v' ? vmelW(i, state.stanza) : state.prog[i].mel;
+    const mel = track === 'v' ? vmelW(i, state.stanza) : barW('mels', i, state.mstanza);
     if (mel[s] === off) {
       mel[s] = null;
       ui.cursor = null;
@@ -576,13 +568,12 @@
     save();
     if (track === 'v') { renderLetraGrid(); return; }
     if (ui.sel !== i) {
-      // El mapa de notas sigue al acorde sobre el que estás escribiendo.
+      // La progresión sigue al acorde sobre el que estás escribiendo.
       ui.sel = i;
       ui.preview = null;
       renderStrip();
       renderNext();
       renderDetail();
-      renderMelodyMap();
     }
     renderMelody();
   }
@@ -700,7 +691,7 @@
   function drumHits(p) {
     const stepMs = 30000 / state.bpm;
     const barMs = stepMs * M.STEPS;
-    const mel = state.prog[p.i] ? state.prog[p.i].mel : [];
+    const mel = melAt(p.i, p.mpass % state.melVerses);
     const barAt = p.next;
     return Drums.barHits(state.rings, {
       life: state.life / 100,
@@ -835,18 +826,12 @@
   // Voz ------------------------------------------------------------------------
 
   const midiLabel = (m) => pcLabel(mod(m)) + (Math.floor(m / 12) - 1);
-  const EMPTY_BAR = Object.freeze(Array(M.STEPS).fill(null));
-  const MAX_STANZAS = 8;
+
 
   // La voz tiene su propia melodía, una por estrofa, guardada en cada compás
   // (it.vmel[k]) para que siga a los acordes si se quitan o se mueven.
-  const vmelOf = (k) => state.prog.slice(0, chords.length).map((it) => (it.vmel && it.vmel[k]) || EMPTY_BAR);
-  function vmelW(i, k) {
-    const it = state.prog[i];
-    if (!it.vmel) it.vmel = [];
-    while (it.vmel.length <= k) it.vmel.push(Array(M.STEPS).fill(null));
-    return it.vmel[k];
-  }
+  const vmelOf = (k) => barsOf('vmel', k);
+  const vmelW = (i, k) => barW('vmel', i, k);
   // Cada idioma canta con sus fonemas: español con reglas propias, inglés con el diccionario CMU.
   function syllsOf(k) {
     const text = (state.stanzas[k] || {}).lyrics || '';
@@ -973,6 +958,20 @@
     });
   }
 
+  // Selector de estrofas, común a Melodía y Letra: la estrofa elegida es la misma en las dos.
+  // part 'm': estrofas de la melodía; 'v': de la letra. Cada parte tiene las suyas.
+  function stanzaBar(part) {
+    const count = part === 'm' ? state.melVerses : stanzaCount();
+    const cur = part === 'm' ? state.mstanza : state.stanza;
+    const chips = Array.from({ length: count }, (x, k) =>
+      `<button class="stanza-chip" data-act="stanza" data-part="${part}" data-v="${k}" data-k="${k}" aria-pressed="${k === cur}">${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
+    return `<div class="row">
+          <div class="seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
+          <button data-act="stanza-add" data-part="${part}" ${count >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Empieza con la melodía de la estrofa actual', 'Starts with the melody of the current verse')}">${tx('+ Estrofa', '+ Verse')}</button>
+          ${count > 1 ? `<button data-act="stanza-remove" data-part="${part}" title="${tx('Quitar la estrofa', 'Remove verse')} ${cur + 1}">${tx('Quitar', 'Remove')}</button>` : ''}
+        </div>`;
+  }
+
   // Pestaña Letra: estrofas, su texto y la melodía que canta la voz.
   function renderLetra() {
     const head = $('letra-head');
@@ -983,15 +982,9 @@
     }
     state.stanza = Math.min(Math.max(0, state.stanza), stanzaCount() - 1);
     const st = state.stanzas[state.stanza];
-    const chips = state.stanzas.map((x, k) =>
-      `<button class="stanza-chip" data-act="stanza" data-v="${k}" data-k="${k}" aria-pressed="${k === state.stanza}">${tx('Estrofa', 'Verse')} ${k + 1}</button>`).join('');
     head.innerHTML = `
       <div class="panel-head">
-        <div class="row">
-          <div class="seg" role="group" aria-label="${tx('Estrofas', 'Verses')}">${chips}</div>
-          <button data-act="stanza-add" ${stanzaCount() >= MAX_STANZAS ? 'disabled' : ''} title="${tx('Empieza con la melodía de la estrofa actual', 'Starts with the melody of the current verse')}">${tx('+ Estrofa', '+ Verse')}</button>
-          ${stanzaCount() > 1 ? `<button data-act="stanza-remove" title="${tx('Quitar la estrofa', 'Remove verse')} ${state.stanza + 1}">${tx('Quitar', 'Remove')}</button>` : ''}
-        </div>
+        ${stanzaBar('v')}
         <div class="row">
           <span class="muted">${tx('Intensidad', 'Dynamics')}</span>${seg('stanza-dyn', [['p', tx('Suave', 'Soft')], ['mf', tx('Normal', 'Normal')], ['f', tx('Fuerte', 'Loud')]], st.dyn || 'mf')}
           ${state.harmony !== 'off' ? `<label class="check"><input type="checkbox" id="c-st-harmony" ${st.harmony !== false ? 'checked' : ''}> ${tx('Segunda voz', 'Second voice')}</label>` : ''}
@@ -999,7 +992,7 @@
         <span class="voice-status" role="status"></span>
       </div>
       <textarea id="c-lyrics" rows="2" spellcheck="true" lang="${state.lang}" aria-label="${tx('Letra de la estrofa', 'Lyrics of verse')} ${state.stanza + 1}" placeholder="${tx(`Letra de la estrofa ${state.stanza + 1}. Por ejemplo: Cielito lindo, los ojos negros`, `Lyrics of verse ${state.stanza + 1}. For example: Twinkle twinkle little star`)}"></textarea>
-      <p class="muted help">${tx('Cada estrofa suena en una vuelta de la progresión. Una sílaba por nota: «-» alarga la anterior, «_» une dos palabras (de_amor) y la puntuación marca dónde respirar. Se canta con pronunciación española.', 'Each verse plays over one pass of the progression. One syllable per note: “-” holds the previous one, and punctuation marks where to breathe. Sung with English pronunciation.')}</p>`;
+      <p class="muted help">${tx('Cada estrofa suena en una vuelta de la progresión, con independencia de las estrofas de la melodía. Una sílaba por nota: «-» alarga la anterior, «_» une dos palabras (de_amor) y la puntuación marca dónde respirar. Se canta con pronunciación española.', 'Each verse plays over one pass of the progression, independently of the melody verses. One syllable per note: “-” holds the previous one, and punctuation marks where to breathe. Sung with English pronunciation.')}</p>`;
     const ta = $('c-lyrics');
     ta.value = state.stanzas[state.stanza].lyrics;
     ta.oninput = () => { state.stanzas[state.stanza].lyrics = ta.value; save(); renderLetraGrid(); };
@@ -1148,13 +1141,124 @@
   }
 
 
+  // Proyectos en archivo --------------------------------------------------------
+
+  const FILE_APP = 'enlace';
+  const FILE_VERSION = 1;
+
+  function songData() {
+    const song = {};
+    SONG_KEYS.forEach((k) => { song[k] = state[k]; });
+    return JSON.parse(JSON.stringify(song));
+  }
+
+  // Nombre de archivo a partir del nombre del proyecto (o la fecha).
+  function fileName() {
+    const base = (state.name || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').toLowerCase();
+    const d = new Date();
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return (base || tx('proyecto-', 'project-') + date) + '.enlace.json';
+  }
+
+  function saveProject() {
+    const data = { app: FILE_APP, version: FILE_VERSION, saved: new Date().toISOString(), lang: state.lang, song: songData() };
+    const blob = new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName();
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    fileMessage(tx(`Guardado como ${a.download}`, `Saved as ${a.download}`), 'ok');
+  }
+
+  // Comprueba el archivo y copia solo lo que es de la canción, con el tipo esperado.
+  function readProject(text) {
+    let data;
+    try { data = JSON.parse(text); } catch (e) { throw new Error(tx('El archivo no es un proyecto de Enlace.', 'The file is not an Enlace project.')); }
+    if (!data || data.app !== FILE_APP || typeof data.song !== 'object' || !data.song) {
+      throw new Error(tx('El archivo no es un proyecto de Enlace.', 'The file is not an Enlace project.'));
+    }
+    if (data.version > FILE_VERSION) throw new Error(tx('El proyecto es de una versión más nueva de Enlace.', 'The project comes from a newer version of Enlace.'));
+    const song = migrate({ ...data.song });
+    const out = {};
+    for (const k of SONG_KEYS) {
+      const v = song[k];
+      const want = k in DEFAULTS ? DEFAULTS[k] : (k === 'stanzas' ? [] : 50);
+      if (v === undefined || v === null) continue;
+      if (Array.isArray(want) ? Array.isArray(v) : typeof v === typeof want) out[k] = v;
+    }
+    if (!Array.isArray(out.prog)) throw new Error(tx('El proyecto no tiene progresión.', 'The project has no progression.'));
+    out.prog = out.prog.filter((it) => it && typeof it.q === 'string' && Array.isArray(it.mels));
+    if (!T.SCALES.some((sc) => sc.id === out.scale)) delete out.scale;
+    return { song: out, lang: data.lang };
+  }
+
+  function openProject(file) {
+    if (!file) return;
+    file.text().then((text) => {
+      const { song, lang } = readProject(text);
+      stop();
+      ui.undo.push(JSON.stringify({ prog: state.prog, sel: ui.sel, rings: state.rings, stanzas: state.stanzas, stanza: state.stanza, song: songData() }));
+      // Lo que el archivo no trae vuelve a su valor por defecto, no se hereda de la canción anterior.
+      const fresh = migrate(Object.fromEntries(SONG_KEYS.filter((k) => k in DEFAULTS).map((k) => [k, DEFAULTS[k]])));
+      Object.assign(state, JSON.parse(JSON.stringify(fresh)), song);
+      if (!state.name) state.name = file.name.replace(/(\.enlace)?\.json$/i, '');
+      ui.sel = state.prog.length - 1;
+      ui.preview = null;
+      ui.cursor = null;
+      update();
+      applyFx();
+      const other = lang && lang !== state.lang && state.stanzas.some((st) => st.lyrics);
+      fileMessage(tx(`Abierto «${state.name}».`, `Opened “${state.name}”.`) + (other
+        ? ' ' + tx('La letra se escribió en inglés: cambia el idioma a EN para cantarla con su pronunciación.', 'The lyrics were written in Spanish: switch the language to ES to sing them with their pronunciation.')
+        : ''), 'ok');
+    }).catch((e) => fileMessage(e.message, 'error'));
+  }
+
+  function fileMessage(text, kind) {
+    ui.fileMsg = { text, kind };
+    renderFile();
+    const menu = $('file').closest('details');
+    if (menu) menu.open = true;
+  }
+
+  function renderFile() {
+    const el = $('file');
+    const msg = ui.fileMsg;
+    el.innerHTML = `
+      <label class="field wide"><span>${tx('Nombre del proyecto', 'Project name')}</span>
+        <input type="text" id="c-name" value="${escapeAttr(state.name)}" placeholder="${tx('Sin título', 'Untitled')}" maxlength="80"></label>
+      <div class="row">
+        <button class="primary" data-act="file-save" title="${tx('Cmd/Ctrl+S', 'Cmd/Ctrl+S')}">${tx('Descargar proyecto', 'Download project')}</button>
+        <button data-act="file-open" title="${tx('Cmd/Ctrl+O', 'Cmd/Ctrl+O')}">${tx('Abrir…', 'Open…')}</button>
+      </div>
+      <p class="muted">${tx('Guarda progresión, melodía, percusión, letra, voz y tempo en un archivo .enlace.json. También puedes arrastrar un archivo a la página para abrirlo.', 'Saves progression, melody, drums, lyrics, voice and tempo in a .enlace.json file. You can also drop a file onto the page to open it.')}</p>
+      ${msg ? `<p class="file-msg is-${msg.kind}" role="status">${escapeText(msg.text)}</p>` : ''}`;
+    $('c-name').oninput = (e) => { state.name = e.target.value; ui.fileMsg = null; saveQuiet(); updateTitle(); };
+    updateTitle();
+  }
+
+  // La pestaña del navegador lleva el nombre del proyecto abierto.
+  function updateTitle() {
+    const name = (state.name || '').trim();
+    document.title = name ? `${name} · Enlace` : 'Enlace';
+  }
+
+  // Guardar en el navegador sin volver a cantar (el nombre no cambia la voz).
+  function saveQuiet() {
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignorar */ }
+  }
+
   // Coordinación ---------------------------------------------------------------
 
   // Textos fijos de index.html: cada uno guarda su versión inglesa en data-en*.
   function applyLang() {
     I18n.set(state.lang);
     document.documentElement.lang = state.lang;
-    document.title = tx('Enlace · acordes y melodías', 'Enlace · chords and melodies');
+    updateTitle();
     document.querySelectorAll('[data-en]').forEach((el) => {
       if (el.dataset.es === undefined) el.dataset.es = el.textContent;
       el.textContent = state.lang === 'en' ? el.dataset.en : el.dataset.es;
@@ -1185,12 +1289,12 @@
 
   function render() {
     renderControls();
+    renderFile();
     renderStrip();
     renderMidi();
     renderNext();
     renderDetail();
     renderMelody();
-    renderMelodyMap();
     renderField();
     renderPresets();
     renderWheel();
@@ -1322,10 +1426,13 @@
       if (!last) return;
       stop();
       const snap = JSON.parse(last);
+      // Deshacer la apertura de un proyecto devuelve la canción entera.
+      if (snap.song) Object.assign(state, snap.song);
       state.prog = snap.prog;
       ui.sel = snap.sel;
       state.rings = snap.rings;
       if (snap.stanzas) { state.stanzas = snap.stanzas; state.stanza = snap.stanza || 0; }
+      if (snap.melVerses) { state.melVerses = snap.melVerses; state.mstanza = snap.mstanza || 0; }
       ui.cursor = null;
       update();
     },
@@ -1380,28 +1487,56 @@
     'toggle-loop'() { state.loop = !state.loop; save(); renderStrip(); },
     'toggle-chords'() { state.playChords = !state.playChords; save(); renderMutes(); },
     'toggle-melody'() { state.playMelody = !state.playMelody; save(); renderMutes(); },
-    stanza(el) { state.stanza = Number(el.dataset.v); ui.cursor = null; save(); renderLetra(); },
-    'stanza-add'() {
+    stanza(el) {
+      if (el.dataset.part === 'm') state.mstanza = Number(el.dataset.v);
+      else state.stanza = Number(el.dataset.v);
+      ui.cursor = null;
+      save();
+      if (el.dataset.part === 'm') renderMelody(); else renderLetra();
+    },
+    // Una estrofa nueva suele variar la anterior: empieza con su melodía.
+    'stanza-add'(el) {
       snapshot();
+      if (el.dataset.part === 'm') {
+        const from = state.mstanza;
+        const k = state.melVerses;
+        state.melVerses += 1;
+        state.prog.forEach((it, i) => { barW('mels', i, k).splice(0, M.STEPS, ...melAt(i, from)); });
+        state.mstanza = k;
+        save();
+        renderMelody();
+        return;
+      }
       const from = state.stanza;
       state.stanzas.push({ lyrics: '' });
       const k = state.stanzas.length - 1;
-      // Una estrofa nueva suele repetir la melodía con otra letra: se copia.
       state.prog.forEach((it, i) => { vmelW(i, k).splice(0, M.STEPS, ...((it.vmel && it.vmel[from]) || EMPTY_BAR)); });
       state.stanza = k;
       save();
       renderLetra();
+      renderSong();
       $('c-lyrics').focus();
     },
-    'stanza-remove'() {
-      if (stanzaCount() < 2) return;
+    'stanza-remove'(el) {
       snapshot();
+      if (el.dataset.part === 'm') {
+        if (state.melVerses < 2) return;
+        const k = state.mstanza;
+        state.melVerses -= 1;
+        state.prog.forEach((it) => { if (it.mels) it.mels.splice(k, 1); });
+        state.mstanza = Math.max(0, k - 1);
+        save();
+        renderMelody();
+        return;
+      }
+      if (stanzaCount() < 2) return;
       const k = state.stanza;
       state.stanzas.splice(k, 1);
       state.prog.forEach((it) => { if (it.vmel) it.vmel.splice(k, 1); });
       state.stanza = Math.max(0, k - 1);
       save();
       renderLetra();
+      renderSong();
     },
     'vmel-generate'() {
       snapshot();
@@ -1416,7 +1551,9 @@
     },
     'vmel-copy'() {
       snapshot();
-      state.prog.forEach((it, i) => { vmelW(i, state.stanza).splice(0, M.STEPS, ...it.mel); });
+      // La estrofa de la melodía que suena junto a esta la primera vez.
+      const mk = state.stanza % state.melVerses;
+      state.prog.forEach((it, i) => { vmelW(i, state.stanza).splice(0, M.STEPS, ...melAt(i, mk)); });
       ui.cursor = null;
       save();
       renderLetraGrid();
@@ -1428,6 +1565,8 @@
       save();
       renderLetraGrid();
     },
+    'file-save'() { saveProject(); },
+    'file-open'() { $('file-input').click(); },
     lang(el) {
       if (state.lang === el.dataset.v) return;
       state.lang = el.dataset.v;
@@ -1448,7 +1587,7 @@
     'mel-generate'() {
       snapshot();
       ui.seed += 1;
-      M.generate(chords, key, M.seeded(ui.seed * 7919)).forEach((bar, i) => { state.prog[i].mel = bar; });
+      M.generate(chords, key, M.seeded(ui.seed * 7919)).forEach((bar, i) => { barW('mels', i, state.mstanza).splice(0, M.STEPS, ...bar); });
       ui.cursor = null;
       save();
       renderMelody();
@@ -1458,7 +1597,7 @@
     },
     'mel-clear'() {
       snapshot();
-      state.prog.forEach((it) => { it.mel = Array(M.STEPS).fill(null); });
+      state.prog.forEach((it, i) => { barW('mels', i, state.mstanza).fill(null); });
       ui.cursor = null;
       save();
       renderMelody();
@@ -1470,22 +1609,22 @@
 
   // Reproducción ---------------------------------------------------------------
 
-  function melodyAt(list, i, s) {
-    if (!state.prog[i]) return null;
-    const off = state.prog[i].mel[s];
+  function melodyAt(list, i, s, pass) {
+    const mel = melAt(i, pass);
+    const off = mel[s];
     if (off === null || off === undefined) return null;
     // Dura hasta la siguiente nota o el final del compás.
     let len = 1;
-    for (let k = s + 1; k < M.STEPS && state.prog[i].mel[k] === null; k++) len++;
+    for (let k = s + 1; k < M.STEPS && (mel[k] === null || mel[k] === undefined); k++) len++;
     return { off: M.snap(off, list), len };
   }
 
-  // La rejilla de la voz solo muestra el cursor si la estrofa que suena es la que se ve.
-  function movePlayhead(i, s, pass) {
+  // Las rejillas solo muestran el cursor si la estrofa que suena es la que se ve.
+  function movePlayhead(i, s, mk, vk) {
     document.querySelectorAll('.mel-grid').forEach((grid) => {
       const head = grid.querySelector('.playhead');
       if (!head) return;
-      if (grid.dataset.track === 'v' && pass !== state.stanza) { head.hidden = true; return; }
+      if ((grid.dataset.track === 'v' ? vk !== state.stanza : mk !== state.mstanza)) { head.hidden = true; return; }
       const label = grid.querySelector('.mel-corner').offsetWidth;
       const cell = (grid.scrollWidth - label) / (chords.length * M.STEPS);
       head.hidden = false;
@@ -1493,9 +1632,9 @@
     });
   }
 
-  function highlight(i, pass) {
+  function highlight(i, mk, vk) {
     document.querySelectorAll('.is-playing').forEach((n) => n.classList.remove('is-playing'));
-    document.querySelectorAll(`.pc[data-i="${i}"], .mel-chord[data-i="${i}"], .stanza-chip[data-k="${pass}"]`)
+    document.querySelectorAll(`.pc[data-i="${i}"], .mel-chord[data-i="${i}"], .stanza-chip[data-part="m"][data-k="${mk}"], .stanza-chip[data-part="v"][data-k="${vk}"]`)
       .forEach((n) => n.classList.add('is-playing'));
   }
 
@@ -1517,19 +1656,22 @@
       const dur = M.spanMs(s, to, state.swingChords, stepMs) * .95 / 1000;
       if (v) emitChord(v.midis, dur, .15, base + M.swingShift(s, state.swingChords, stepMs), state.playChords);
     }
-    const pass = p.pass;
-    // La voz se programa una vez por vuelta completa (todas las estrofas).
-    if (s === 0 && i === Math.max(1, chords.length) - 1 && pass >= stanzaCount() - 1 && state.loop) p.voiceAt = at + M.STEPS * stepMs;
-    const n = melodyAt(p.list, i, s);
+    // Melodía y voz recorren sus estrofas cada una por su cuenta.
+    const mk = p.mpass % state.melVerses;
+    const vk = p.vpass % stanzaCount();
+    // La voz (todas sus estrofas en una toma) vuelve a empezar al acabar su última estrofa.
+    const lastBar = s === 0 && i === Math.max(1, chords.length) - 1;
+    if (lastBar && vk === stanzaCount() - 1 && (state.loop || p.pass + 1 < songPasses())) p.voiceAt = at + M.STEPS * stepMs;
+    const n = melodyAt(p.list, i, s, mk);
     if (n) {
       const dur = M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000;
       emitNote(M.midiOf(n.off, key), dur, .32, base + M.swingShift(s, state.swingMelody, stepMs), state.playMelody);
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
-      if (s === 0) { highlight(i, pass); p.barSeen = performance.now(); }
-      movePlayhead(i, s, pass);
-      markVoiceNote(pass, i, s);
+      if (s === 0) { highlight(i, mk, vk); p.barSeen = performance.now(); }
+      movePlayhead(i, s, mk, vk);
+      markVoiceNote(vk, i, s);
     }, Math.max(0, at - performance.now()));
   }
 
@@ -1564,21 +1706,23 @@
         if (p.i >= bars) {
           p.i = 0;
           p.pass += 1;
-          if (p.pass >= stanzaCount()) {
-            if (!state.loop) { p.endAt = p.next; return; }
-            p.pass = 0;
-          }
+          p.mpass += 1;
+          p.vpass += 1;
+          // Sin bucle, la canción dura lo que la parte con más estrofas; la otra se repite.
+          if (!state.loop && p.pass >= songPasses()) { p.endAt = p.next; return; }
         }
       }
     }
   }
+
+  const songPasses = () => Math.max(state.melVerses, stanzaCount());
 
   function play() {
     if (!canPlay()) return;
     // Con voz lista se deja margen para que entren sus primeras consonantes.
     const lead = voiceTake() ? Voice.LEAD * 1000 : 0;
     const next = performance.now() + 40 + lead;
-    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next, pass: 0 };
+    ui.playing = { i: 0, s: 0, next, list: M.rows(key, chords), endAt: 0, queue: [], barSeen: 0, voices: [], voiceAt: next, pass: 0, mpass: 0, vpass: 0 };
     renderTransport();
     animateHand();
   }
@@ -1654,9 +1798,28 @@
       return;
     }
     if (e.key === 'Escape') document.querySelectorAll('details.menu[open]').forEach((m) => { m.open = false; });
+    // Guardar y abrir funcionan también con el foco en un campo de texto.
+    if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.key === 's' || e.key === 'o')) {
+      e.preventDefault();
+      if (e.key === 's') saveProject(); else $('file-input').click();
+      return;
+    }
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
     if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); ACTIONS.undo(); return; }
     if (e.key === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); ACTIONS.play(); }
+  });
+
+  $('file-input').onchange = (e) => { openProject(e.target.files[0]); e.target.value = ''; };
+  // Arrastrar un proyecto a la página lo abre.
+  document.addEventListener('dragover', (e) => {
+    if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); document.body.classList.add('is-dropping'); }
+  });
+  document.addEventListener('dragleave', (e) => { if (!e.relatedTarget) document.body.classList.remove('is-dropping'); });
+  document.addEventListener('drop', (e) => {
+    document.body.classList.remove('is-dropping');
+    if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+    e.preventDefault();
+    openProject(e.dataTransfer.files[0]);
   });
 
   startTicker(() => { schedule(); Midi.flush(); });

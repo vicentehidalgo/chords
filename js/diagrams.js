@@ -82,32 +82,6 @@
     return [start, end];
   }
 
-  // Mástil horizontal con la prima arriba. marks: Map pc → { cls, label }
-  function fretboard(marks, { frets = 15, label = '' } = {}) {
-    const FW = 46, SH = 19, X = 26, Y = 12;
-    const w = X + FW * frets + 10;
-    const h = Y + SH * 5 + 26;
-    let s = `<svg class="dg-neck" viewBox="0 0 ${w} ${h}" role="img" aria-label="${label}">`;
-    for (let f = 0; f <= frets; f++) {
-      s += `<line class="${f === 0 ? 'n-nut' : 'n-fret'}" x1="${X + f * FW}" x2="${X + f * FW}" y1="${Y}" y2="${Y + 5 * SH}"/>`;
-      if (f > 0 && [3, 5, 7, 9, 12, 15].includes(f)) {
-        s += `<text class="n-num" x="${X + (f - .5) * FW}" y="${Y + 5 * SH + 18}" text-anchor="middle">${f}</text>`;
-      }
-    }
-    TUNING.slice().reverse().forEach((open, i) => {
-      const y = Y + i * SH;
-      s += `<line class="n-string" x1="${X}" x2="${X + frets * FW}" y1="${y}" y2="${y}"/>`;
-      for (let f = 0; f <= frets; f++) {
-        const mark = marks.get(mod(open + f));
-        if (!mark) continue;
-        const x = f === 0 ? X - 13 : X + (f - .5) * FW;
-        s += `<circle class="p-mark ${mark.cls}" cx="${x}" cy="${y}" r="8.5"/>`;
-        s += `<text class="n-label" x="${x}" y="${y + 3}" text-anchor="middle">${mark.label}</text>`;
-      }
-    });
-    return s + '</svg>';
-  }
-
   // Rueda de ritmos: un anillo por instrumento, con la primera posición arriba.
   function wheel(rings, families) {
     const SIZE = 440;
@@ -142,5 +116,5 @@
     return s + `<line class="w-hand" x1="${C}" y1="${C}" x2="${C}" y2="${C - OUTER - 14}" hidden/></svg>`;
   }
 
-  globalThis.Diagrams = { guitar, piano, pianoRange, fretboard, wheel };
+  globalThis.Diagrams = { guitar, piano, pianoRange, wheel };
 })();
