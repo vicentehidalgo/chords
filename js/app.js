@@ -15,7 +15,7 @@
   const DEFAULTS = {
     tonic: 0, scale: 'ionian', level: 0, instrument: 'guitar', notation: 'latin', lang: null,
     outside: true, smooth: true, bpm: 88, loop: true, playChords: true, playMelody: true,
-    tab: 'chords', swing: 50, comp: 'whole', midiOn: false, midiOut: null,
+    tab: 'chords', comp: 'whole', midiOn: false, midiOut: null,
     sendChords: true, sendMelody: true, sendDrums: true,
     midiChordCh: 1, midiMelodyCh: 2, midiDrumCh: 10, localSound: true,
     rings: [], life: 0, playDrums: true,
@@ -42,6 +42,12 @@
     if (state.lyrics) state.prog.forEach((it) => { if (!it.vmel) it.vmel = [it.mel.slice()]; });
   }
   delete state.lyrics;
+
+  // El swing pasó a ser de cada parte; las versiones anteriores tenían uno común.
+  ['swingChords', 'swingMelody', 'swingDrums', 'swingVoice'].forEach((k) => {
+    if (typeof state[k] !== 'number') state[k] = typeof state.swing === 'number' ? state.swing : 50;
+  });
+  delete state.swing;
 
   // Idioma: el guardado o, la primera vez, el del navegador.
   if (state.lang !== 'es' && state.lang !== 'en') {
@@ -227,7 +233,8 @@
     $('transport').innerHTML = `
       <button class="primary" data-act="play" ${canPlay() ? '' : 'disabled'}>${ui.playing ? tx('■ Parar', '■ Stop') : tx('▶ Reproducir', '▶ Play')}</button>
       <label class="bpm">${state.bpm} ${tx('ppm', 'bpm')} <input type="range" id="c-bpm" min="50" max="180" step="2" value="${state.bpm}" aria-label="Tempo"></label>
-      <label class="bpm">Swing <input type="range" id="c-swing" min="50" max="75" step="1" value="${state.swing}" aria-label="Swing"> <span id="swing-value">${swingLabel()}</span></label>
+      <label class="bpm swing" title="${tx('Swing de la pestaña actual; cada parte tiene el suyo', 'Swing of the current tab; each part has its own')}">Swing <small class="swing-scope">${swingScope()}</small>
+        <input type="range" id="c-swing" min="50" max="75" step="1" value="${state[swingKey()]}" aria-label="Swing ${swingScope()}"> <span id="swing-value">${swingLabel(state[swingKey()])}</span></label>
       <select id="c-comp" aria-label="${tx('Ritmo de los acordes', 'Chord rhythm')}">${Object.entries(M.COMP).map(([id, c]) =>
         `<option value="${id}" ${id === state.comp ? 'selected' : ''}>${tr(c.name)}</option>`).join('')}</select>
       <button data-act="toggle-loop" aria-pressed="${state.loop}">${tx('Bucle', 'Loop')}</button>
@@ -241,8 +248,8 @@
       if (state.tab === 'voice') renderVoice();
     };
     $('c-swing').oninput = (e) => {
-      state.swing = Number(e.target.value);
-      $('swing-value').textContent = swingLabel();
+      state[swingKey()] = Number(e.target.value);
+      $('swing-value').textContent = swingLabel(state[swingKey()]);
       updateSwingHint();
       save();
       if (state.tab === 'voice') renderVoice();
@@ -251,15 +258,24 @@
     updateSwingHint();
   }
 
-  const swingLabel = () => (state.swing === 50 ? tx('recto', 'straight') : state.swing + '%');
+  const swingLabel = (v) => (v === 50 ? tx('recto', 'straight') : v + '%');
+
+  // Cada parte tiene su swing. El deslizador de la barra controla el de la pestaña
+  // que se ve (Letra y Voz comparten el de la voz).
+  const SWING_KEYS = { chords: 'swingChords', melody: 'swingMelody', drums: 'swingDrums', letra: 'swingVoice', voice: 'swingVoice' };
+  const swingKey = () => SWING_KEYS[state.tab] || 'swingChords';
+  const swingScope = () => ({
+    chords: tx('acordes', 'chords'), melody: tx('melodía', 'melody'), drums: tx('percusión', 'drums'),
+    letra: tx('voz', 'voice'), voice: tx('voz', 'voice'),
+  })[state.tab] || '';
 
   // Con golpes solo en partes fuertes el swing no altera los acordes: se avisa.
   function updateSwingHint() {
     const onBeats = M.COMP[state.comp].hits.every((s) => s % 2 === 0);
-    $('c-comp').title = state.swing > 50 && onBeats
-      ? tx('Este ritmo no tiene contratiempos: el swing solo se oirá en la melodía', 'This rhythm has no off-beats: swing will only be heard in the melody')
+    $('c-comp').title = state.swingChords > 50 && onBeats
+      ? tx('Este ritmo no tiene contratiempos: el swing de los acordes no se oirá', 'This rhythm has no off-beats: the chord swing will not be heard')
       : tx('Ritmo de los acordes', 'Chord rhythm');
-    $('c-comp').classList.toggle('needs-offbeat', state.swing > 50 && onBeats);
+    $('c-comp').classList.toggle('needs-offbeat', state.swingChords > 50 && onBeats);
   }
 
   // Sugerencias ----------------------------------------------------------------
@@ -691,7 +707,7 @@
       rand: Math.random,
       melody: mel.flatMap((off, s) => (off === null ? [] : [s])),
       chordHits: chords.length ? M.COMP[state.comp].hits : [],
-    }).map((h) => ({ ...h, at: barAt + Drums.swungPos(h.pos, state.swing) * barMs }));
+    }).map((h) => ({ ...h, at: barAt + Drums.swungPos(h.pos, state.swingDrums) * barMs }));
   }
 
   function fireDrum(hit) {
@@ -864,7 +880,7 @@
   function voiceRequest(plan) {
     if (!plan.pairs.some((p) => p.syl)) return null;
     return Voice.request({
-      pairs: plan.pairs, bpm: state.bpm, swing: state.swing, body: state.voiceBody,
+      pairs: plan.pairs, bpm: state.bpm, swing: state.swingVoice, body: state.voiceBody,
       vibrato: state.vibrato, breath: state.breath / 100, bright: state.bright / 100, force: state.force,
       stanzas: state.stanzas.map((st) => ({ bars: chords.length, dyn: st.dyn })),
       harmony: state.harmony !== 'off' ? { body: state.harmonyBody } : null,
@@ -1104,7 +1120,7 @@
           <li><b>${tx('Estrofas', 'Verses')}</b>: ${stanzaCount()}, ${tx('cada una en una vuelta de la progresión y con su intensidad.', 'each over one pass of the progression, with its own dynamics.')}</li>
           <li><b>Tempo</b> ${state.bpm} ${tx('ppm', 'bpm')}: ${tx('cada sílaba dura su nota y las consonantes entran antes del pulso.', 'each syllable lasts its note and consonants land before the beat.')}</li>
           <li><b>${tx('Eco', 'Echo')}</b> ${tx(...ECHO_TIMES[state.echoTime].long)}: ${Math.round(echoSeconds() * 1000)} ms ${tx('a este tempo', 'at this tempo')}.</li>
-          <li><b>Swing</b> ${swingLabel()}: ${tx('retrasa las corcheas a contratiempo igual que el resto.', 'delays off-beat eighths like everything else.')}</li>
+          <li><b>Swing</b> ${swingLabel(state.swingVoice)}: ${tx('el de la voz, que se ajusta en la barra desde esta pestaña o desde Letra.', 'the voice’s own, set from the bar while on this tab or Lyrics.')}</li>
           <li><b>Vibrato</b> ${tx('a', 'at')} ${decimal(vib.rate)} Hz, ${vib.per} ${tx('ondas por pulso, solo en las notas largas.', 'cycles per beat, only on long notes.')}</li>
           <li><b>${tx('Respira', 'Breathes')}</b> ${tx('en los silencios y en la puntuación.', 'at rests and punctuation.')}</li>
         </ul>
@@ -1223,6 +1239,7 @@
 
   function setTab(tab) {
     state.tab = tab;
+    renderTransport();
     // La voz depende de todo lo demás: al entrar se pone al día.
     if (tab === 'voice') { renderSong(); renderVoice(); }
     if (tab === 'letra') renderLetra();
@@ -1486,8 +1503,10 @@
   // tiempo exactas y no depende de lo ocupada que esté la página.
   const LOOKAHEAD_MS = 120;
 
-  function scheduleStep(p, at) {
+  // base: el paso sin swing. Cada parte retrasa sus contratiempos con su propio swing.
+  function scheduleStep(p, base) {
     const stepMs = 30000 / state.bpm;
+    const at = base;
     const { i, s } = p;
     const { hits } = M.COMP[state.comp];
     const hit = hits.indexOf(s);
@@ -1495,16 +1514,16 @@
     if (hit >= 0 && chords[i]) {
       const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
       const to = hit + 1 < hits.length ? hits[hit + 1] : M.STEPS;
-      const dur = M.spanMs(s, to, state.swing, stepMs) * .95 / 1000;
-      if (v) emitChord(v.midis, dur, .15, at, state.playChords);
+      const dur = M.spanMs(s, to, state.swingChords, stepMs) * .95 / 1000;
+      if (v) emitChord(v.midis, dur, .15, base + M.swingShift(s, state.swingChords, stepMs), state.playChords);
     }
     const pass = p.pass;
     // La voz se programa una vez por vuelta completa (todas las estrofas).
     if (s === 0 && i === Math.max(1, chords.length) - 1 && pass >= stanzaCount() - 1 && state.loop) p.voiceAt = at + M.STEPS * stepMs;
     const n = melodyAt(p.list, i, s);
     if (n) {
-      const dur = M.spanMs(s, s + n.len, state.swing, stepMs) * .92 / 1000;
-      emitNote(M.midiOf(n.off, key), dur, .32, at, state.playMelody);
+      const dur = M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000;
+      emitNote(M.midiOf(n.off, key), dur, .32, base + M.swingShift(s, state.swingMelody, stepMs), state.playMelody);
     }
     setTimeout(() => {
       if (ui.playing !== p) return;
@@ -1529,13 +1548,14 @@
       if (now >= p.endAt) stop(true);
       return;
     }
-    // El margen se mide con el swing ya aplicado: una corchea retrasada no debe
-    // programarse tan lejos que parar no pueda alcanzarla.
+    // El margen se mide con el swing ya aplicado (el mayor de las partes): una
+    // corchea retrasada no debe programarse tan lejos que parar no pueda alcanzarla.
     const stepMs = 30000 / state.bpm;
-    while (p.next + M.swingShift(p.s, state.swing, stepMs) < now + LOOKAHEAD_MS) {
+    const late = Math.max(state.swingChords, state.swingMelody);
+    while (p.next + M.swingShift(p.s, late, stepMs) < now + LOOKAHEAD_MS) {
       const bars = Math.max(1, chords.length);
       if (p.i >= bars) p.i = 0; // se quitó un acorde mientras sonaba
-      scheduleStep(p, p.next + M.swingShift(p.s, state.swing, stepMs));
+      scheduleStep(p, p.next);
       p.next += stepMs;
       p.s += 1;
       if (p.s >= M.STEPS) {
