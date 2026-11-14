@@ -545,3 +545,7 @@ body.is-reordering, body.is-reordering * { cursor: grabbing !important; }
 .tabs .tab-solo[aria-pressed="true"] { background: var(--tension); border-color: var(--tension); color: var(--paper); }
 .tabs .tab-mute.is-implied { opacity: .35; }
 @media (max-width: 600px) { .tabs .tab-solo { margin-right: 3px; } }
+.export { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
+.export .field-title { flex-basis: 100%; font-size: 12px; color: var(--ink-2); }
+.export input[type="number"] { width: 56px; padding: 4px 6px; background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+.exp-bars.is-off { opacity: .45; }

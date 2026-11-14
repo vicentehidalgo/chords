@@ -1394,7 +1394,9 @@
         <button data-act="file-open" title="${tx('Cmd/Ctrl+O', 'Cmd/Ctrl+O')}">${tx('Abrir…', 'Open…')}</button>
       </div>
       <p class="muted">${tx('Guarda progresión, melodía, percusión, letra, voz y tempo en un archivo .enlace.json. También puedes arrastrar un archivo a la página para abrirlo.', 'Saves progression, melody, drums, lyrics, voice and tempo in a .enlace.json file. You can also drop a file onto the page to open it.')}</p>
+      ${chords.length ? exportHTML() : ''}
       ${msg ? `<p class="file-msg is-${msg.kind}" role="status">${escapeText(msg.text)}</p>` : ''}`;
+    ['c-exp-from', 'c-exp-to'].forEach((id) => { const inp = $(id); if (inp) inp.onchange = () => { ui.expRange = 'bars'; ui[id === 'c-exp-from' ? 'expFrom' : 'expTo'] = Number(inp.value); renderFile(); }; });
     $('c-name').oninput = (e) => { state.name = e.target.value; ui.fileMsg = null; saveQuiet(); updateTitle(); };
     updateTitle();
   }
@@ -1403,6 +1405,101 @@
   function updateTitle() {
     const name = (state.name || '').trim();
     document.title = name ? `${name} · Enlace` : 'Enlace';
+  }
+
+  // Exportar a WAV: la canción entera o unos compases (por defecto, el bucle elegido).
+  function exportBars() {
+    const total = songBars();
+    const r = regionOf();
+    let from = ui.expFrom || (r ? r.from + 1 : 1);
+    let to = ui.expTo || (r ? r.to + 1 : total);
+    from = Math.max(1, Math.min(total, from));
+    to = Math.max(from, Math.min(total, to));
+    return ui.expRange === 'bars' || (ui.expRange === undefined && r) ? { from: from - 1, to: to - 1, part: true } : { from: 0, to: total - 1, part: false };
+  }
+
+  function exportHTML() {
+    const total = songBars();
+    const b = exportBars();
+    return `<div class="export">
+        <span class="field-title">${tx('Exportar audio', 'Export audio')}</span>
+        ${seg('export-range', [['song', tx('Canción entera', 'Whole song')], ['bars', tx('Compases', 'Bars')]], b.part ? 'bars' : 'song')}
+        <span class="exp-bars ${b.part ? '' : 'is-off'}">
+          <input type="number" id="c-exp-from" min="1" max="${total}" value="${b.from + 1}" aria-label="${tx('Desde el compás', 'From bar')}"> –
+          <input type="number" id="c-exp-to" min="1" max="${total}" value="${b.to + 1}" aria-label="${tx('Hasta el compás', 'To bar')}"></span>
+        <button data-act="export-wav" ${ui.exporting ? 'disabled' : ''}>${ui.exporting ? tx('Exportando…', 'Exporting…') : tx('Exportar WAV', 'Export WAV')}</button>
+      </div>`;
+  }
+
+  async function exportWav() {
+    if (ui.exporting || !chords.length) return;
+    const { from, to, part } = exportBars();
+    ui.exporting = true;
+    renderFile();
+    try {
+      // La voz tiene que estar cantada antes de mezclarla.
+      for (let n = 0; n < 600 && voiceProgress().status === 'rendering'; n++) {
+        if (n === 1) fileMessage(tx('Esperando a que la voz termine de cantarse…', 'Waiting for the voice to finish…'), 'ok');
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const bars = barsPerPass();
+      const barSec = 4 * 60 / state.bpm;
+      const stepSec = barSec / M.STEPS;
+      const stepMs = stepSec * 1000;
+      const vkOf = (g) => Math.floor(g / bars) % stanzaCount();
+      const pre = from % bars === 0 && hears('voice') && takeFor(vkOf(from)) ? Voice.LEAD : 0;
+      const seconds = pre + (to - from + 1) * barSec + 3;
+      const inst = state.instrument === 'piano' ? 'piano' : 'guitar';
+      const list = M.rows(key, chords);
+      const audio = await Sound.renderOffline(seconds, 44100, () => {
+        applyFx();
+        for (let g = from; g <= to; g++) {
+          const barT = pre + (g - from) * barSec;
+          const i = g % bars;
+          const pass = Math.floor(g / bars);
+          const mk = pass % state.melVerses;
+          const bk = pass % state.bassVerses;
+          const vk = pass % stanzaCount();
+          const at = (s, sw) => barT + s * stepSec + M.swingShift(s, sw, stepMs) / 1000;
+          const { hits } = M.COMP[state.comp];
+          const v = voicings[i][state.instrument === 'piano' ? 'p' : 'g'];
+          if (hears('chords') && v) hits.forEach((s, h) => {
+            const end = h + 1 < hits.length ? hits[h + 1] : M.STEPS;
+            Sound.chord(v.midis, inst, M.spanMs(s, end, state.swingChords, stepMs) * .95 / 1000, .15, at(s, state.swingChords));
+          });
+          for (let s = 0; s < M.STEPS; s++) {
+            const b = hears('bass') && noteRun(bassAtBar(i, bk), s);
+            if (b) Sound.bass(M.midiOf(b.off, key), M.spanMs(s, s + b.len, state.swingBass, stepMs) * .9 / 1000, .42, at(s, state.swingBass));
+            const n = hears('melody') && melodyAt(list, i, s, mk);
+            if (n) Sound.note(M.midiOf(n.off, key), M.spanMs(s, s + n.len, state.swingMelody, stepMs) * .92 / 1000, .32, at(s, state.swingMelody));
+          }
+          if (hears('drums')) drumHits({ next: barT * 1000 }, i, mk).forEach((h) => Sound.drum(h.inst, h.velocity, h.at / 1000));
+          // Cada estrofa de la voz entra al empezar su vuelta (o al principio, si se exporta desde la mitad).
+          if (hears('voice') && (g === from || i === 0)) {
+            const take = takeFor(vk);
+            if (take) {
+              let t = i === 0 ? barT - Voice.LEAD : barT;
+              let offset = i === 0 ? 0 : Voice.LEAD + i * barSec;
+              if (t < 0) { offset -= t; t = 0; }
+              Sound.buffer(take.lead.samples, take.lead.rate, t, voiceLevel('lead'), take.harm ? -.12 : 0, offset);
+              if (take.harm) Sound.buffer(take.harm.samples, take.harm.rate, t, voiceLevel('harmony'), .3, offset);
+            }
+          }
+        }
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(Sound.toWav(audio));
+      a.download = fileName().replace(/\.enlace\.json$/, '') + (part ? `-c${from + 1}-${to + 1}` : '') + '.wav';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      ui.exporting = false;
+      fileMessage(tx(`Exportado ${a.download}`, `Exported ${a.download}`), 'ok');
+    } catch (e) {
+      ui.exporting = false;
+      fileMessage(tx('No se pudo exportar: ', 'Could not export: ') + e.message, 'error');
+    }
   }
 
   // Guardar en el navegador sin volver a cantar (el nombre no cambia la voz).
@@ -1882,6 +1979,8 @@
       renderLetraGrid();
     },
     'file-save'() { saveProject(); },
+    'export-range'(el) { ui.expRange = el.dataset.v; renderFile(); },
+    'export-wav'() { exportWav(); },
     'region-clear'() { state.region = null; saveQuiet(); renderTimeline(); },
     'file-open'() { $('file-input').click(); },
     lang(el) {

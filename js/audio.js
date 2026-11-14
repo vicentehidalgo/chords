@@ -4,17 +4,24 @@
   let ctx = null;
   let master = null;
 
+  let offline = false; // mientras se exporta, el contexto es uno sin conexión
+
+  function chain(c) {
+    const m = c.createDynamicsCompressor();
+    const out = c.createGain();
+    out.gain.value = .8;
+    m.connect(out).connect(c.destination);
+    return m;
+  }
+
   function ensure() {
     if (!ctx) {
       const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
       if (!AC) return null;
       ctx = new AC();
-      master = ctx.createDynamicsCompressor();
-      const out = ctx.createGain();
-      out.gain.value = .8;
-      master.connect(out).connect(ctx.destination);
+      master = chain(ctx);
     }
-    if (ctx.state === 'suspended') ctx.resume();
+    if (!offline && ctx.state === 'suspended') ctx.resume();
     return ctx;
   }
 
@@ -222,5 +229,52 @@
     };
   }
 
-  globalThis.Sound = { chord, note, bass, drum, buffer, voiceFx };
+  // Exportar ----------------------------------------------------------------------
+  // Renderiza sin conexión: schedule() llama a las mismas funciones de sonido, con
+  // los retrasos medidos desde el principio del archivo. Devuelve un AudioBuffer.
+  async function renderOffline(seconds, rate, schedule) {
+    const OAC = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
+    if (!OAC) throw new Error('offline');
+    const off = new OAC(2, Math.ceil(seconds * rate), rate);
+    const saved = { ctx, master, bus, noiseBuffer };
+    ctx = off;
+    master = chain(off);
+    bus = null;
+    noiseBuffer = null;
+    offline = true;
+    try {
+      schedule();
+    } finally {
+      ({ ctx, master, bus, noiseBuffer } = saved);
+      offline = false;
+    }
+    return off.startRendering();
+  }
+
+  // AudioBuffer → WAV de 16 bits.
+  function toWav(audio) {
+    const ch = audio.numberOfChannels;
+    const n = audio.length;
+    const data = [];
+    for (let c = 0; c < ch; c++) data.push(audio.getChannelData(c));
+    const bytes = 44 + n * ch * 2;
+    const view = new DataView(new ArrayBuffer(bytes));
+    const str = (o, t) => { for (let i = 0; i < t.length; i++) view.setUint8(o + i, t.charCodeAt(i)); };
+    str(0, 'RIFF'); view.setUint32(4, bytes - 8, true); str(8, 'WAVE');
+    str(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, ch, true);
+    view.setUint32(24, audio.sampleRate, true); view.setUint32(28, audio.sampleRate * ch * 2, true);
+    view.setUint16(32, ch * 2, true); view.setUint16(34, 16, true);
+    str(36, 'data'); view.setUint32(40, n * ch * 2, true);
+    let o = 44;
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < ch; c++) {
+        const x = Math.max(-1, Math.min(1, data[c][i]));
+        view.setInt16(o, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+        o += 2;
+      }
+    }
+    return new Blob([view.buffer], { type: 'audio/wav' });
+  }
+
+  globalThis.Sound = { chord, note, bass, drum, buffer, voiceFx, renderOffline, toWav };
 })();

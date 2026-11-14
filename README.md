@@ -32,6 +32,7 @@ Spanish and English.
   drums, each on its own channel.
 - **Projects**: save the song to a file you can download and open later; the browser tab shows
   the project name.
+- **Export to WAV**: render the whole song, or the bars you choose, to an audio file.
 - **Spanish and English**: the whole interface in either language, switched from the top right.
 - **Quick to use**: tabs for each part (switch with the `Tab` key), undo, keyboard shortcuts,
   and a layout that fits the window without scrolling.
@@ -143,6 +144,11 @@ In the Project menu, “Download project” saves the song to a `.enlace.json` f
 melody, bass, drums, lyrics and voice with all their verses, tempo and swing. “Open…” (or
 dropping the file onto the page) brings it back; if you open one by mistake, Undo returns to
 the song you had. Language, the open tab and the MIDI setup stay with your browser.
+
+“Export WAV”, in the same menu, renders the song to a stereo 16-bit, 44.1 kHz audio file:
+the whole song or a range of bars (it starts with the loop picked on the timeline, if any). It
+mixes chords, melody, bass, drums and voice with the reverb and echo, follows each part’s
+swing and respects mute and solo; if the voice is still being sung, it waits for it.
 
 ## Shortcuts
 
